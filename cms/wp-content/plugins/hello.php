@@ -17,6 +17,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	die();
 }
 
+/**
+ * Retrieve a random line from the song "Hello, Dolly".
+ *
+ * The returned string has been processed with wptexturize for typographic formatting.
+ *
+ * @return string The selected lyric line (formatted with wptexturize).
+ */
 function hello_dolly_get_lyric() {
 	/** These are the lyrics to Hello Dolly */
 	$lyrics = "Hello, Dolly
@@ -54,7 +61,12 @@ Dolly'll never go away again";
 	return wptexturize( $lyrics[ mt_rand( 0, count( $lyrics ) - 1 ) ] );
 }
 
-// This just echoes the chosen line, we'll position it later.
+/**
+ * Outputs a single line from the "Hello, Dolly" lyrics inside a styled admin paragraph.
+ *
+ * The paragraph includes a screen-reader label, a visible span with dir="ltr", and a language attribute
+ * (`lang="en"`) when the current user locale does not begin with "en_".
+ */
 function hello_dolly() {
 	$chosen = hello_dolly_get_lyric();
 	$lang   = '';
@@ -73,7 +85,12 @@ function hello_dolly() {
 // Now we set that function up to execute when the admin_notices action is called.
 add_action( 'admin_notices', 'hello_dolly' );
 
-// We need some CSS to position the paragraph.
+/**
+ * Outputs inline CSS that positions and styles the "#dolly" admin paragraph.
+ *
+ * The styles float the element to the right (left in RTL), set padding, margin, font size, and line height,
+ * hide the element on block editor pages, and adjust layout for screens 782px wide or narrower.
+ */
 function dolly_css() {
 	echo "
 	<style type='text/css'>

@@ -91,42 +91,14 @@ class Akismet_CLI extends WP_CLI_Command {
 	}
 
 	/**
-	 * Fetches stats from the Akismet API.
+	 * Fetches and displays Akismet site statistics.
 	 *
-	 * ## OPTIONS
+	 * Retrieves statistics for the requested interval and prints them using WP-CLI's formatting utilities.
 	 *
-	 * [<interval>]
-	 * : The time period for which to retrieve stats.
-	 * ---
-	 * default: all
-	 * options:
-	 *  - days
-	 *  - months
-	 *  - all
-	 * ---
-	 *
-	 * [--format=<format>]
-	 * : Allows overriding the output of the command when listing connections.
-	 * ---
-	 * default: table
-	 * options:
-	 *  - table
-	 *  - json
-	 *  - csv
-	 *  - yaml
-	 *  - count
-	 * ---
-	 *
-	 * [--summary]
-	 * : When set, will display a summary of the stats.
-	 *
-	 * ## EXAMPLES
-	 *
-	 * wp akismet stats
-	 * wp akismet stats all
-	 * wp akismet stats days
-	 * wp akismet stats months
-	 * wp akismet stats all --summary
+	 * @param array $args Positional arguments; the first element selects the interval: 'days' (60-days), 'months' (6-months), or 'all' (default).
+	 * @param array $assoc_args Associative arguments; supports:
+	 *                         - 'format': output format ('table', 'json', 'csv', 'yaml', 'count'),
+	 *                         - 'summary': when present, outputs a condensed summary of key metrics.
 	 */
 	public function stats( $args, $assoc_args ) {
 		$api_key = Akismet::get_api_key();
