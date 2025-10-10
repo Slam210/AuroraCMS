@@ -1,0 +1,73 @@
+# Name of the workflow
+name: CI/CD Pipeline  
+
+# Trigger workflow on push or pull request to main or develop branches
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  # Build Angular Frontend
+  build-frontend:
+    name: Build Angular Frontend
+    # GitHub-hosted Linux runner
+    runs-on: ubuntu-latest  
+    steps:
+      # Checkout the repository code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Setup Node.js environment
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          # Set Node version to match my Angular project
+          node-version: '20'  
+
+      # Install npm dependencies for Angular
+      - name: Install Dependencies
+        # Move into frontend folder
+        working-directory: ./frontend
+        # Clean install dependencies from package-lock.json
+        run: npm ci  
+
+      # Lint Angular code (optional)
+      - name: Lint Angular Code
+        working-directory: ./frontend
+        # Continue even if lint fails
+        run: npm run lint || echo "Lint warnings"  
+
+      # Build Angular app for production
+      - name: Build Angular App
+        working-directory: ./frontend
+        # Create production-ready bundle
+        run: npm run build -- --prod  
+
+  # Job 2: Build Backend & Docker
+  build-backend:
+    name: Check PHP & Build Docker Images
+    runs-on: ubuntu-latest
+    # Run this job after frontend build completes
+    needs: build-frontend  
+    steps:
+      # Checkout repository again as jobs are isolated
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Check PHP syntax in WordPress content
+      - name: Check PHP Syntax
+        run: |
+          # Recursively check all PHP files in wp-content
+          find ./cms/wp-content -name '*.php' -exec php -l {} \;
+
+      # Build Docker images for all services
+      - name: Build Docker Images
+        run: |
+          # Build containers defined in docker-compose.yml
+          docker-compose -f docker-compose.yml build
