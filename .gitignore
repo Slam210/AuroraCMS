@@ -41,17 +41,17 @@ e2e/*.map
 #
 # Note: if you want to stage/commit WP core files
 # you can delete this whole section/until Configuration.
-/wp-admin/
-/wp-content/index.php
-/wp-content/languages
-/wp-content/plugins/index.php
-/wp-content/themes/index.php
-/wp-includes/
-/index.php
-/license.txt
-/readme.html
-/wp-*.php
-/xmlrpc.php
+cms/wp-admin/
+cms/wp-content/index.php
+cms/wp-content/languages
+cms/wp-content/plugins/index.php
+cms/wp-content/themes/index.php
+cms/wp-includes/
+cms/index.php
+cms/license.txt
+cms/readme.html
+cms/wp-*.php
+cms/xmlrpc.php
 
 # Configuration
 wp-config.php
@@ -71,5 +71,5 @@ wp-config.php
 # htaccess
 /.htaccess
 
-# WordPress runtime content
-cms/wp-content/
+# Backup files
+backups/
