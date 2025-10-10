@@ -52,7 +52,7 @@ jobs:
       - name: Build Angular App
         working-directory: ./frontend
         # Create production-ready bundle
-        run: npm run build -- --prod  
+        run: npm run build --prod  
 
   # Job 2: Build Backend & Docker
   build-backend:
