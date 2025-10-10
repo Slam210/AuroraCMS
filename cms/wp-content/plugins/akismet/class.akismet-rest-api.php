@@ -2,7 +2,12 @@
 
 class Akismet_REST_API {
 	/**
-	 * Register the REST API routes.
+	 * Register Akismet REST API routes under the akismet/v1 namespace.
+	 *
+	 * Registers endpoints for API key management, settings, stats, alerts, and webhooks
+	 * with appropriate permission callbacks, argument definitions, and sanitizers.
+	 *
+	 * @return false|void False when the REST API registration function is unavailable; otherwise no return value.
 	 */
 	public static function init() {
 		if ( ! function_exists( 'register_rest_route' ) ) {
@@ -164,20 +169,23 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Get the current Akismet API key.
+	 * Retrieve the current Akismet API key.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * @return WP_REST_Response The current API key string, or null if no key is configured.
 	 */
 	public static function get_key( $request = null ) {
 		return rest_ensure_response( Akismet::get_api_key() );
 	}
 
 	/**
-	 * Set the API key, if possible.
+	 * Set the Akismet API key from the request when permitted.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * Attempts to update the stored API key using the request's `key` parameter.
+	 * If the site has a hardcoded key (WPCOM_API_KEY), the request is rejected.
+	 * If the provided key is not a valid registered key, the request is rejected.
+	 *
+	 * @param WP_REST_Request $request Request containing the `key` parameter (string) to store as the API key.
+	 * @return WP_Error|WP_REST_Response WP_Error with status 409 when the key is hardcoded; WP_Error with status 400 when the provided key is invalid; otherwise a WP_REST_Response containing the current API key.
 	 */
 	public static function set_key( $request ) {
 		if ( defined( 'WPCOM_API_KEY' ) ) {
@@ -196,10 +204,10 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Unset the API key, if possible.
+	 * Delete the stored Akismet API key unless the site uses a hardcoded key.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * @param WP_REST_Request $request The REST request (not used).
+	 * @return WP_Error|WP_REST_Response WP_Error with code `hardcoded_key` and HTTP status 409 if the API key is hardcoded; WP_REST_Response containing `true` otherwise.
 	 */
 	public static function delete_key( $request ) {
 		if ( defined( 'WPCOM_API_KEY' ) ) {
@@ -212,10 +220,13 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Get the Akismet settings.
+	 * Retrieve the current Akismet boolean settings.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * Returns an array with:
+	 * - `akismet_strictness`: `true` if strict filtering is enabled, `false` otherwise.
+	 * - `akismet_show_user_comments_approved`: `true` if approved user comments are shown, `false` otherwise.
+	 *
+	 * @return WP_REST_Response A REST response containing the settings array.
 	 */
 	public static function get_settings( $request = null ) {
 		return rest_ensure_response(
@@ -227,10 +238,12 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Update the Akismet settings.
+	 * Update Akismet boolean settings from request parameters.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * Reads `akismet_strictness` and `akismet_show_user_comments_approved` from the request and updates the stored options when provided.
+	 *
+	 * @param WP_REST_Request $request Request containing optional boolean parameters for the settings.
+	 * @return WP_REST_Response The current Akismet settings as returned by `get_settings()`.
 	 */
 	public static function set_boolean_settings( $request ) {
 		foreach ( array(
@@ -256,10 +269,10 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Parse a numeric or string boolean value into a boolean.
+	 * Convert various boolean-like values to a boolean.
 	 *
-	 * @param mixed $value The value to convert into a boolean.
-	 * @return bool The converted value.
+	 * @param mixed $value Value to convert (bool, numeric, or string representations).
+	 * @return bool `true` if the value represents truth, `false` otherwise.
 	 */
 	public static function parse_boolean( $value ) {
 		switch ( $value ) {
@@ -281,15 +294,12 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Get the Akismet stats for a given time period.
+	 * Retrieve Akismet statistics for a specified interval.
 	 *
-	 * Possible `interval` values:
-	 * - all
-	 * - 60-days
-	 * - 6-months
+	 * Possible `interval` values: `all`, `60-days`, `6-months`.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * @param WP_REST_Request $request The REST request; may include the `interval` parameter.
+	 * @return WP_Error|WP_REST_Response A WP_Error on failure, or a WP_REST_Response containing an associative array where the requested interval string maps to the decoded stats object.
 	 */
 	public static function get_stats( $request ) {
 		$api_key = Akismet::get_api_key();
@@ -316,12 +326,10 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Get the current alert code and message. Alert codes are used to notify the site owner
-	 * if there's a problem, like a connection issue between their site and the Akismet API,
-	 * invalid requests being sent, etc.
+	 * Retrieve the current Akismet alert code and message.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * @param WP_REST_Request|null $request Optional REST request (unused).
+	 * @return WP_REST_Response Array with 'code' (alert code) and 'message' (alert message).
 	 */
 	public static function get_alert( $request ) {
 		return rest_ensure_response(
@@ -333,10 +341,12 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Update the current alert code and message by triggering a call to the Akismet server.
+	 * Refreshes the stored alert code and message by requesting the latest alert from the Akismet server.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * Deletes any locally stored alert state, triggers a server verification to repopulate alert values, and returns the current alert.
+	 *
+	 * @param WP_REST_Request $request Request object (passed to get_alert when forming the response).
+	 * @return WP_Error|WP_REST_Response `WP_Error` on failure, or a `WP_REST_Response` containing the current alert with keys `code` and `message`.
 	 */
 	public static function set_alert( $request ) {
 		delete_option( 'akismet_alert_code' );
@@ -349,10 +359,10 @@ class Akismet_REST_API {
 	}
 
 	/**
-	 * Clear the current alert code and message.
+	 * Clear stored Akismet alert code and message and return the current alert state.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * @param WP_REST_Request $request The request object (not used).
+	 * @return WP_Error|WP_REST_Response The current alert data with keys `code` and `message`.
 	 */
 	public static function delete_alert( $request ) {
 		delete_option( 'akismet_alert_code' );
@@ -361,6 +371,12 @@ class Akismet_REST_API {
 		return self::get_alert( $request );
 	}
 
+	/**
+	 * Check whether the given Akismet API key is valid.
+	 *
+	 * @param string $key The API key to validate.
+	 * @return bool `true` if the key is valid, `false` otherwise.
+	 */
 	private static function key_is_valid( $key ) {
 		$request_args = array(
 			'key'  => $key,
@@ -378,12 +394,22 @@ class Akismet_REST_API {
 		return false;
 	}
 
+	/**
+	 * Determine whether the current user has privileged permissions for Akismet operations.
+	 *
+	 * @return bool `true` if the current user has the 'manage_options' capability, `false` otherwise.
+	 */
 	public static function privileged_permission_callback() {
 		return current_user_can( 'manage_options' );
 	}
 
 	/**
-	 * For calls that Akismet.com makes to the site to clear outdated alert codes, use the API key for authorization.
+	 * Authorizes remote calls from Akismet by validating the request's API key.
+	 *
+	 * Compares the incoming request's `key` parameter against the locally configured Akismet API key (case-insensitive).
+	 *
+	 * @param WP_REST_Request $request The incoming REST request.
+	 * @return bool `true` if the request key matches the configured API key, `false` otherwise.
 	 */
 	public static function remote_call_permission_callback( $request ) {
 		$local_key = Akismet::get_api_key();
@@ -391,6 +417,17 @@ class Akismet_REST_API {
 		return $local_key && ( strtolower( $request->get_param( 'key' ) ) === strtolower( $local_key ) );
 	}
 
+	/**
+	 * Sanitize and normalize a stats interval parameter.
+	 *
+	 * Trims the provided value and ensures it is one of '60-days', '6-months', or 'all'.
+	 * Returns 'all' when the input is not one of the allowed values.
+	 *
+	 * @param string           $interval Interval value to sanitize.
+	 * @param WP_REST_Request  $request  Request object (unused).
+	 * @param string           $param    Parameter name (unused).
+	 * @return string The sanitized interval: '60-days', '6-months', or 'all'.
+	 */
 	public static function sanitize_interval( $interval, $request, $param ) {
 		$interval = trim( $interval );
 
@@ -403,15 +440,27 @@ class Akismet_REST_API {
 		return $interval;
 	}
 
+	/**
+	 * Trim leading and trailing whitespace from an API key value.
+	 *
+	 * @param string $key The API key value to sanitize.
+	 * @return string The trimmed API key.
+	 */
 	public static function sanitize_key( $key, $request, $param ) {
 		return trim( $key );
 	}
 
 	/**
-	 * Process a webhook request from the Akismet servers.
+	 * Handle webhook requests sent by Akismet servers and update comment moderation state accordingly.
 	 *
-	 * @param WP_REST_Request $request
-	 * @return WP_Error|WP_REST_Response
+	 * Processes webhook payloads for endpoints such as `comment-check`, `submit-ham`, and `submit-spam`,
+	 * applies any required comment status changes, records per-comment results, and triggers the
+	 * akismet_webhook_received action after processing.
+	 *
+	 * @param WP_REST_Request $request The incoming REST request containing `endpoint` and optional `comments`.
+	 * @return WP_Error|WP_REST_Response A WP_Error for malformed requests (for example, when `comments` is not an array),
+	 *                                  otherwise a WP_REST_Response with an array containing per-comment statuses under the
+	 *                                  `comments` key (each entry keyed by comment GUID with `status` and optional `message`).
 	 */
 	public static function receive_webhook( $request ) {
 		Akismet::log( array( 'Webhook request received', $request->get_body() ) );

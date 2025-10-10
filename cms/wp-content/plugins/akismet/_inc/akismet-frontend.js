@@ -21,6 +21,14 @@
 		window.removeEventListener( 'testPassive', null, opts );
 	} catch ( e ) {}
 
+	/**
+	 * Initialize client-side interaction tracking and attach listeners to collect timing and interaction metrics.
+	 *
+	 * Attaches keyboard, mouse, touch, and scroll listeners on the document and on POST forms to record typing durations,
+	 * key intervals, mouse clicks and movements, touch events, and scroll counts. On form submission, compiles the collected
+	 * metrics into hidden form fields (prefixed with "ak_" by default, or a custom prefix provided via a
+	 * `.akismet-fields-container[data-prefix]` element) so they are submitted with the form.
+	 */
 	function init() {
 		var input_begin = '';
 
@@ -341,8 +349,13 @@
 	}
 
 	/**
-	 * For the timestamp data that is collected, don't send more than `limit` data points in the request.
-	 * Choose a random slice and send those.
+	 * Serialize up to `limit` timestamp entries from an array into a compact request string.
+	 *
+	 * If the input array contains more entries than `limit`, a contiguous slice is chosen at random.
+	 *
+	 * @param {Array.<Array.<number>>} a - Array of timestamp entries; each entry is an array whose first element is a timestamp and whose optional second element is an associated value.
+	 * @param {number} [limit=100] - Maximum number of entries to include.
+	 * @returns {string} A semicolon-separated string of entries where each entry is `timestamp` or `timestamp,secondaryValue`.
 	 */
 	function prepare_timestamp_array_for_request( a, limit ) {
 		if ( ! limit ) {

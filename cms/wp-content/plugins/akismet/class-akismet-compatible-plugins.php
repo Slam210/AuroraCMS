@@ -67,14 +67,15 @@ class Akismet_Compatible_Plugins {
 	public const DEFAULT_VISIBLE_PLUGIN_COUNT = 2;
 
 	/**
-	 * Get the list of active, installed compatible plugins.
+	 * Retrieve the compatible plugins that are installed and currently active on the site or network.
 	 *
-	 * @return WP_Error|array {
-	 *     Array of active, installed compatible plugins with their metadata.
-	 *     @type string $name     The display name of the plugin
-	 *     @type string $help_url URL to the plugin's help documentation
-	 *     @type string $logo     URL or path to the plugin's logo
-	 * }
+	 * @return WP_Error|array WP_Error with code self::COMPATIBLE_PLUGIN_API_ERROR on failure; otherwise an associative array keyed by plugin slug containing metadata:
+	 *     @type array $<slug> {
+	 *         @type string $name     The display name of the plugin.
+	 *         @type string $help_url URL to the plugin's help documentation.
+	 *         @type string $logo     URL or path to the plugin's logo.
+	 *         @type string $path     Filesystem plugin path (e.g., "plugin-dir/plugin-file.php").
+	 *     }
 	 */
 	public static function get_installed_compatible_plugins() {
 		// Retrieve and validate the full compatible plugins list.
@@ -111,9 +112,7 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Initializes action hooks for the class.
-	 *
-	 * @return void
+	 * Registers activation and deactivation hooks that respond to plugin list changes.
 	 */
 	public static function init(): void {
 		add_action( 'activated_plugin', array( static::class, 'handle_plugin_change' ), true );
@@ -121,11 +120,13 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Handles plugin activation and deactivation events.
-	 *
-	 * @param string $plugin The path to the main plugin file from plugins directory.
-	 * @return void
-	 */
+		 * Invalidate the cached compatible-plugins list when a plugin is activated or deactivated.
+		 *
+		 * Checks the cached compatible plugins and purges the cache if the changed plugin's
+		 * main file path (relative to the plugins directory) appears in that cached list.
+		 *
+		 * @param string $plugin Path to the plugin's main file relative to the plugins directory (e.g. "plugin-folder/plugin-file.php").
+		 */
 	public static function handle_plugin_change( string $plugin ): void {
 		$cached_plugins = static::get_cached_plugins();
 
@@ -147,9 +148,15 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Gets plugins that are compatible with Akismet from the Akismet API.
+	 * Fetches the list of Akismet-compatible plugins and returns them indexed by slug.
 	 *
-	 * @return array
+	 * Retrieves cached data when available; otherwise requests the remote compatible-plugins
+	 * endpoint, validates and sanitizes the response, stores the result in cache, and returns it.
+	 *
+	 * @return array<string, array> Associative array keyed by plugin slug. Each value is a plugin
+	 *                             data array containing the keys `slug`, `name`, `logo`, `help_url`,
+	 *                             and `path`. Returns an empty array if no compatible plugins are
+	 *                             available or if retrieval/validation fails.
 	 */
 	private static function get_compatible_plugins(): array {
 		// Return cached result if present (false => cache miss; empty array is valid).
@@ -184,10 +191,10 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Validates a response object from the Compatible Plugins API.
+	 * Validate and sanitize a response from the Compatible Plugins API.
 	 *
-	 * @param array|WP_Error $response
-	 * @return array|false
+	 * @param array|WP_Error $response The raw response returned by wp_remote_get() (array with headers and body) or a WP_Error on failure.
+	 * @return array|false Array of sanitized compatible plugin entries on success, `false` if the response is invalid or represents an error.
 	 */
 	private static function validate_compatible_plugin_response( $response ) {
 		/**
@@ -243,23 +250,23 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Validates a plugin path format.
+	 * Determine whether a plugin path matches the expected 'plugin-folder/plugin-file.php' pattern.
 	 *
-	 * The path should be in the format of 'plugin-name/plugin-name.php'.
-	 * Allows alphanumeric characters, dashes, underscores, and optional dots in folder names.
-	 *
-	 * @param string $path
-	 * @return bool
+	 * @param string $path The plugin path to validate.
+	 * @return bool `true` if the path matches the pattern (folder/file.php) allowing letters, digits, dots, underscores, and dashes in the folder and underscores/dashes/digits/letters in the file name; `false` otherwise.
 	 */
 	private static function has_valid_plugin_path( string $path ): bool {
 		return preg_match( '/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9_-]+\.php$/', $path ) === 1;
 	}
 
 	/**
-	 * Sanitizes a response object from the Compatible Plugins API.
+	 * Sanitizes plugin entries returned by the Compatible Plugins API.
 	 *
-	 * @param array $plugins
-	 * @return array
+	 * Applies text sanitization to each field and URL sanitization specifically to
+	 * the `help_url` and `logo` fields.
+	 *
+	 * @param array $plugins Raw plugin entries (typically keyed by slug).
+	 * @return array The sanitized plugin entries.
 	 */
 	private static function sanitize_compatible_plugin_response( array $plugins = array() ): array {
 		foreach ( $plugins as $key => $plugin ) {
@@ -272,8 +279,14 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * @param array $plugins
-	 * @return bool
+	 * Store the provided compatible plugins in the current blog's object cache.
+	 *
+	 * The expected structure is an array indexed by plugin slug, where each value
+	 * is an associative array containing the fields: `slug`, `name`, `logo`,
+	 * `help_url`, and `path`.
+	 *
+	 * @param array $plugins Compatible plugins indexed by slug with required fields.
+	 * @return bool `true` on successful cache set, `false` on failure.
 	 */
 	private static function set_cached_plugins( array $plugins ): bool {
 		$_blog_id = (int) get_current_blog_id();
@@ -287,9 +300,9 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Attempts to get cached compatible plugins.
+	 * Retrieve the per-blog cached compatible plugins list.
 	 *
-	 * @return mixed|false
+	 * @return array|false The cached plugins indexed by slug, or `false` if no cache exists.
 	 */
 	private static function get_cached_plugins() {
 		$_blog_id = (int) get_current_blog_id();
@@ -301,9 +314,9 @@ class Akismet_Compatible_Plugins {
 	}
 
 	/**
-	 * Purges the cache for the compatible plugins.
+	 * Purges the cached compatible plugins for the current blog.
 	 *
-	 * @return bool
+	 * @return bool `true` if the cache entry was successfully deleted, `false` otherwise.
 	 */
 	private static function purge_cache(): bool {
 		$_blog_id = (int) get_current_blog_id();

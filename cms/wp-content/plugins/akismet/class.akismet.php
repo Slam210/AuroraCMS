@@ -50,6 +50,11 @@ class Akismet {
 		'user_ip'              => '',
 	);
 
+	/**
+	 * Ensure Akismet's WordPress hooks are initialized once for the current request.
+	 *
+	 * Subsequent calls have no effect.
+	 */
 	public static function init() {
 		if ( ! self::$initiated ) {
 			self::init_hooks();
@@ -57,7 +62,14 @@ class Akismet {
 	}
 
 	/**
-	 * Initializes WordPress hooks
+	 * Registers WordPress actions and filters that integrate Akismet with comment
+	 * processing, form handling, scheduled tasks, and third-party form plugins.
+	 *
+	 * This method sets the initiated flag and attaches hooks for comment checks,
+	 * REST comment insertion, form field injection and JS loading, cron rechecks,
+	 * fallback notifications/approvals, comment status transitions, pingback
+	 * prechecks, option updates, and compatibility with Jetpack, Gravity Forms,
+	 * Contact Form 7, Formidable Forms, and Fluent Forms.
 	 */
 	private static function init_hooks() {
 		self::$initiated = true;
@@ -134,15 +146,23 @@ class Akismet {
 		add_action( 'comment_form_after', array( 'Akismet', 'display_comment_form_privacy_notice' ) );
 	}
 
+	/**
+	 * Retrieve the configured Akismet API key, allowing overrides via the `akismet_get_api_key` filter.
+	 *
+	 * @return string|null The configured API key if present, or `null` if no key is configured.
+	 */
 	public static function get_api_key() {
 		return apply_filters( 'akismet_get_api_key', defined( 'WPCOM_API_KEY' ) ? constant( 'WPCOM_API_KEY' ) : get_option( 'wordpress_api_key' ) );
 	}
 
 	/**
-	 * Exchange the API key for a token that can only be used to access stats pages.
-	 *
-	 * @return string
-	 */
+		 * Obtain an access token usable for Akismet stats pages.
+		 *
+		 * Retrieves a token by exchanging the configured API key and caches the token for subsequent calls
+		 * during the same request lifecycle.
+		 *
+		 * @return string The access token used for stats pages.
+		 */
 	public static function get_access_token() {
 		static $access_token = null;
 
@@ -159,6 +179,13 @@ class Akismet {
 		return $access_token;
 	}
 
+	/**
+	 * Sends a verification request for an API key to Akismet.
+	 *
+	 * @param string $key The API key to verify.
+	 * @param string|null $ip Optional IP address to include with the request.
+	 * @return array An array containing the response headers and body from Akismet (i.e., [headers, body]).
+	 */
 	public static function check_key_status( $key, $ip = null ) {
 		$request_args = array(
 			'key'  => $key,
@@ -170,6 +197,13 @@ class Akismet {
 		return self::http_post( self::build_query( $request_args ), 'verify-key', $ip );
 	}
 
+	/**
+	 * Determine whether an Akismet API key is valid.
+	 *
+	 * @param string $key The API key to verify.
+	 * @param string|null $ip Optional client IP address to include in the verification request.
+	 * @return string `'valid'` if the key is valid, `'invalid'` if the key is invalid, `'failed'` if the status could not be determined.
+	 */
 	public static function verify_key( $key, $ip = null ) {
 		// Shortcut for obviously invalid keys.
 		if ( strlen( $key ) != 12 ) {
@@ -185,6 +219,12 @@ class Akismet {
 		return $response[1];
 	}
 
+	/**
+	 * Deactivate an Akismet API key with the Akismet service.
+	 *
+	 * @param string $key The API key to deactivate.
+	 * @return string `'deactivated'` if the key was successfully deactivated, `'failed'` otherwise.
+	 */
 	public static function deactivate_key( $key ) {
 		$request_args = array(
 			'key'  => $key,
@@ -234,10 +274,12 @@ class Akismet {
 	}
 
 	/**
-	 * Treat the creation of an API key the same as updating the API key to a new value.
+	 * Handle the addition of the API key option by treating it as an update to the key.
 	 *
-	 * @param mixed $option_name   Will always be "wordpress_api_key", until something else hooks in here.
-	 * @param mixed $value         The option value.
+	 * If the added option is "wordpress_api_key", invokes the same handling as an update with the new value.
+	 *
+	 * @param string $option_name The name of the option being added (expected to be "wordpress_api_key").
+	 * @param mixed  $value       The new option value.
 	 */
 	public static function added_option( $option_name, $value ) {
 		if ( 'wordpress_api_key' === $option_name ) {
@@ -245,18 +287,25 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * For REST API comment submissions, run Akismet's auto-check and return the (possibly modified) comment data.
+	 *
+	 * @param array $commentdata Comment data provided to the REST API before insertion.
+	 * @return array The comment data, potentially augmented with Akismet metadata or status changes.
+	 */
 	public static function rest_auto_check_comment( $commentdata ) {
 		return self::auto_check_comment( $commentdata, 'rest_api' );
 	}
 
 	/**
-	 * Check a comment for spam.
+	 * Evaluate a comment with Akismet and annotate it with spam-related metadata.
 	 *
-	 * @param array  $commentdata
-	 * @param string $context What kind of request triggered this comment check? Possible values are 'default', 'rest_api', and 'xml-rpc'.
-	 * @return array|WP_Error Either the $commentdata array with additional entries related to its spam status
-	 *                        or a WP_Error, if it's a REST API request and the comment should be discarded.
-	 */
+	 * If no API key is configured, the original $commentdata is returned unchanged.
+	 *
+	 * @param array  $commentdata Comment data prepared for insertion.
+	 * @param string $context     The request context that triggered the check; possible values: 'default', 'rest_api', 'xml-rpc'.
+	 * @return array|WP_Error The augmented $commentdata array containing Akismet fields (such as `akismet_result`, `comment_meta`, `akismet_guid`, etc.),
+	 *                       or a WP_Error when a REST API comment should be discarded.
 	public static function auto_check_comment( $commentdata, $context = 'default' ) {
 		// If no key is configured, then there's no point in doing any of this.
 		if ( ! self::get_api_key() ) {
@@ -506,10 +555,25 @@ class Akismet {
 		return $commentdata;
 	}
 
+	/**
+	 * Retrieve the last comment data checked by Akismet.
+	 *
+	 * @return array|null The filtered comment data previously stored via set_last_comment, or `null` if no comment is recorded.
+	 */
 	public static function get_last_comment() {
 		return self::$last_comment;
 	}
 
+	/**
+	 * Store a filtered copy of a comment for later matching.
+	 *
+	 * If `$comment` is null, clears the stored last comment. Otherwise, ensures
+	 * `comment_author_IP` is present (using the current request IP), applies
+	 * `wp_filter_comment` to normalize/filter the data, and saves the result to
+	 * `self::$last_comment`.
+	 *
+	 * @param array|null $comment Comment data to store, or null to clear the last comment.
+	 */
 	public static function set_last_comment( $comment ) {
 		if ( is_null( $comment ) ) {
 			// This never happens in our code.
@@ -527,7 +591,17 @@ class Akismet {
 	}
 
 	// this fires on wp_insert_comment.  we can't update comment_meta when auto_check_comment() runs
-	// because we don't know the comment ID at that point.
+	/**
+	 * Update Akismet-related comment history and meta after a comment is inserted.
+	 *
+	 * When the inserted comment matches the last comment previously checked by
+	 * auto_check_comment(), records history entries and metadata based on the
+	 * stored Akismet result (`true`, `false`, `skipped`, or an error). Handles
+	 * status-change, disallowed-list, pending-approval fallbacks, and error cases.
+	 *
+	 * @param int        $id      The ID passed to wp_insert_comment (new comment ID).
+	 * @param WP_Comment $comment The comment object as provided to the wp_insert_comment hook.
+	 */
 	public static function auto_check_update_meta( $id, $comment ) {
 		// wp_insert_comment() might be called in other contexts, so make sure this is the same comment
 		// as was checked by auto_check_comment
@@ -584,13 +658,14 @@ class Akismet {
 	}
 
 	/**
-	 * After the comment has been inserted, we have access to the comment ID. Now, we can
-	 * schedule the fallback moderation/notification emails using the comment ID instead
-	 * of relying on a lookup of the GUID in the commentmeta table.
-	 *
-	 * @param int $id The comment ID.
-	 * @param object $comment The comment object.
-	 */
+		 * Schedules a delayed moderation/notification email for a newly inserted comment when a delay is configured.
+		 *
+		 * If the comment has an `akismet_schedule_email_fallback` meta value, schedules the `akismet_email_fallback`
+		 * single event to run after that delay and removes the meta.
+		 *
+		 * @param int        $id      The comment ID.
+		 * @param WP_Comment $comment The comment object.
+		 */
 	public static function schedule_email_fallback( $id, $comment ) {
 		self::log( 'Checking whether to schedule_email_fallback for comment #' . $id );
 
@@ -609,10 +684,12 @@ class Akismet {
 	}
 
 	/**
-	 * Send out the notification emails if they were previously delayed while waiting
-	 * for a recheck or webhook.
+	 * Send any moderation notification emails that were previously delayed for a comment.
 	 *
-	 * @param int $comment_ID The comment ID.
+	 * If the comment has a delayed-moderation flag, trigger notifications for the moderator and post author
+	 * and remove the delay-related metadata.
+	 *
+	 * @param int $comment_id The comment ID.
 	 */
 	public static function email_fallback( $comment_id ) {
 		self::log( 'In email fallback for comment #' . $comment_id );
@@ -631,13 +708,15 @@ class Akismet {
 	}
 
 	/**
-	 * After the comment has been inserted, we have access to the comment ID. Now, we can
-	 * schedule the fallback moderation/notification emails using the comment ID instead
-	 * of relying on a lookup of the GUID in the commentmeta table.
-	 *
-	 * @param int $id The comment ID.
-	 * @param object $comment The comment object.
-	 */
+		 * Schedule a delayed approval fallback for a comment when a previously queued delay exists.
+		 *
+		 * If the comment has an `akismet_schedule_approval_fallback` meta value (seconds), this
+		 * method removes that meta and schedules the `akismet_approval_fallback` single event
+		 * to run after the specified delay.
+		 *
+		 * @param int    $id      The comment ID.
+		 * @param object $comment The comment object.
+		 */
 	public static function schedule_approval_fallback( $id, $comment ) {
 		self::log( 'Checking whether to schedule_approval_fallback for comment #' . $id );
 
@@ -656,9 +735,9 @@ class Akismet {
 	}
 
 	/**
-	 * If no other process has approved or spammed this comment since it was put in pending, approve it.
+	 * Approves a pending comment if it is still unmodified since Akismet's last action and passes native comment validation.
 	 *
-	 * @param int $comment_ID The comment ID.
+	 * @param int $comment_id The comment ID to consider for automatic approval.
 	 */
 	public static function approval_fallback( $comment_id ) {
 		self::log( 'In approval fallback for comment #' . $comment_id );
@@ -694,6 +773,16 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * Permanently removes spam comments older than a configurable number of days in batch operations.
+	 *
+	 * The batch size is controlled by the `akismet_delete_comment_limit` filter (default AKISMET_DELETE_LIMIT or 10000).
+	 * The retention interval (days before deletion) is controlled by the `akismet_delete_comment_interval` filter (default 15).
+	 * For each comment deleted this function fires standard deletion actions (`delete_comment`, `deleted_comment`)
+	 * and Akismet-specific hooks (`akismet_batch_delete_count`, `akismet_delete_comment_batch`), removes associated
+	 * comment meta, and clears the comment cache. Table optimization may run occasionally and is governed by the
+	 * `akismet_optimize_table` filter.
+	 */
 	public static function delete_old_comments() {
 		global $wpdb;
 
@@ -749,6 +838,15 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * Removes expired akismet_as_submitted comment meta entries and optionally optimizes the commentmeta table.
+	 *
+	 * Deletes 'akismet_as_submitted' meta for comments older than a configurable number of days (default 15, minimum 1).
+	 * The retention period can be changed via the 'akismet_delete_commentmeta_interval' filter.
+	 * Deletions are processed in batches; after each deleted meta the 'akismet_batch_delete_count' action is fired,
+	 * and after each batch the 'akismet_delete_commentmeta_batch' action is fired with the number of items deleted.
+	 * Occasionally the commentmeta table may be optimized based on the 'akismet_optimize_table' filter.
+	 */
 	public static function delete_old_comments_meta() {
 		global $wpdb;
 
@@ -782,7 +880,17 @@ class Akismet {
 		}
 	}
 
-	// Clear out comments meta that no longer have corresponding comments in the database
+	/**
+	 * Remove Akismet-related comment meta entries that no longer have a corresponding comment.
+	 *
+	 * Scans comment meta in batches and deletes meta keys prefixed with `akismet_` when the
+	 * associated comment is missing. Emits `akismet_batch_delete_count` for each deleted item
+	 * and `akismet_delete_commentmeta_batch` after each batch. Processing runs in short batches
+	 * and stops early to avoid exceeding PHP's max execution time. Occasionally optimizes the
+	 * commentmeta table after cleanup.
+	 *
+	 * @return void
+	 */
 	public static function delete_orphaned_commentmeta() {
 		global $wpdb;
 
@@ -822,7 +930,20 @@ class Akismet {
 		}
 	}
 
-	// how many approved comments does this author have?
+	/**
+	 * Count approved comments for a user or comment author, honoring excluded comment types.
+	 *
+	 * If `$user_id` is provided, the count is performed by user ID. Otherwise the count
+	 * is performed by matching `comment_author_email`, `comment_author`, and
+	 * `comment_author_url`. Comment types excluded by the `akismet_excluded_comment_types`
+	 * filter are not counted.
+	 *
+	 * @param int|null $user_id User ID to count comments for (takes precedence).
+	 * @param string $comment_author_email Comment author email to match when `$user_id` is empty.
+	 * @param string $comment_author Comment author name to match when `$user_id` is empty.
+	 * @param string $comment_author_url Comment author URL to match when `$user_id` is empty.
+	 * @return int The number of approved comments that match the provided identity.
+	 */
 	public static function get_user_comments_approved( $user_id, $comment_author_email, $comment_author, $comment_author_url ) {
 		global $wpdb;
 
@@ -920,12 +1041,16 @@ class Akismet {
 	}
 
 	/**
-	 * Log an event for a given comment, storing it in comment_meta.
+	 * Append a timestamped history entry to a comment's `akismet_history` meta.
+	 *
+	 * The entry records the provided event code, the current user's login when available,
+	 * a timestamp in microseconds, and optional metadata. Multiple history entries are
+	 * stored per comment.
 	 *
 	 * @param int    $comment_id The ID of the relevant comment.
-	 * @param string $message The string description of the event. No longer used.
-	 * @param string $event The event code.
-	 * @param array  $meta Metadata about the history entry. e.g., the user that reported or changed the status of a given comment.
+	 * @param string $message    Deprecated/unused parameter retained for backwards compatibility.
+	 * @param string $event      A short event code describing the action (e.g., 'report-spam', 'report-ham').
+	 * @param array|null $meta   Optional associative metadata for the history entry (e.g., reporter info).
 	 */
 	public static function update_comment_history( $comment_id, $message, $event = null, $meta = null ) {
 		global $current_user;
@@ -949,6 +1074,18 @@ class Akismet {
 		$r = add_comment_meta( $comment_id, 'akismet_history', $event, false );
 	}
 
+	/**
+	 * Check a stored comment against the Akismet comment-check API.
+	 *
+	 * Builds a request payload from the comment record and sends it to Akismet to obtain a spam check result.
+	 *
+	 * @param int    $id             Comment ID to check.
+	 * @param string $recheck_reason Optional reason describing why the comment is being rechecked. Default 'recheck_queue'.
+	 * @return string|false|WP_Error
+	 *         The raw Akismet response body when available (e.g. 'true' or 'false'),
+	 *         `false` when no response body was returned,
+	 *         or a WP_Error on configuration or if the comment ID is invalid.
+	 */
 	public static function check_db_comment( $id, $recheck_reason = 'recheck_queue' ) {
 		global $wpdb;
 
@@ -991,6 +1128,20 @@ class Akismet {
 		return false;
 	}
 
+	/**
+	 * Rechecks a comment with the Akismet service and updates the comment's status,
+	 * metadata, and history based on the API response.
+	 *
+	 * This will mark the comment as rechecking while the call is performed, then
+	 * set `akismet_result`, clear error/delay/fallback meta, append a recheck entry
+	 * to the comment history, and transition the comment to spam if the response
+	 * indicates spam.
+	 *
+	 * @param int    $id             Comment ID to recheck.
+	 * @param string $recheck_reason Optional human-readable reason for the recheck (defaults to 'recheck_queue').
+	 * @return mixed `'true'` if Akismet indicates the comment is spam, `'false'` if it is ham,
+	 *               a `WP_Error` if the comment ID is invalid, or another string with the
+	 *               API response when an error/abnormal response occurred. */
 	public static function recheck_comment( $id, $recheck_reason = 'recheck_queue' ) {
 		add_comment_meta( $id, 'akismet_rechecking', true );
 
@@ -1031,6 +1182,18 @@ class Akismet {
 		return $api_response;
 	}
 
+	/**
+	 * Handle a comment status transition: submit explicit moderator-driven spam/ham reports to Akismet or record the status change.
+	 *
+	 * Performs permission and context checks, clears spam-count cache when transitioning to/from spam, ignores deletions,
+	 * imports, rechecks, or webhook-initiated changes, and detects explicit user actions (REST/API, admin actions, bulk actions,
+	 * Jetpack/Calypso) before calling submit_spam_comment or submit_nonspam_comment. If not submitted to Akismet, appends a
+	 * `status-<new_status>` entry to the comment's Akismet history.
+	 *
+	 * @param string $new_status New comment status (e.g., 'spam', 'approved', 'unapproved', 'delete').
+	 * @param string $old_status Previous comment status.
+	 * @param WP_Comment|object $comment Comment object containing at least comment_ID and comment_post_ID.
+	 */
 	public static function transition_comment_status( $new_status, $old_status, $comment ) {
 
 		if ( $new_status == $old_status ) {
@@ -1112,6 +1275,18 @@ class Akismet {
 		self::update_comment_history( $comment->comment_ID, '', 'status-' . $new_status );
 	}
 
+	/**
+	 * Reports a comment to Akismet as spam and records the reporting in comment history and metadata.
+	 *
+	 * Builds a submission payload from the comment (preferring any stored "as submitted" copy), augments it
+	 * with blog/site and reporter information, sends it to the Akismet `submit-spam` endpoint, marks the
+	 * comment as reported by the current user, and fires the `akismet_submit_spam_comment` action.
+	 *
+	 * If the comment does not exist, is not in the "spam" state, or no API key is configured, the function
+	 * performs no submission and returns immediately.
+	 *
+	 * @param int $comment_id The ID of the comment to report as spam.
+	 */
 	public static function submit_spam_comment( $comment_id ) {
 		global $wpdb, $current_user, $current_site;
 
@@ -1185,6 +1360,17 @@ class Akismet {
 		do_action( 'akismet_submit_spam_comment', $comment_id, $response[1] );
 	}
 
+	/**
+	 * Report a comment as non-spam (ham) to Akismet and record that action.
+	 *
+	 * Looks up the comment by ID, appends any stored "as submitted" fields, records a
+	 * "report-ham" history entry, sends a `submit-ham` request to Akismet (after
+	 * applying `akismet_request_args`), and stores related comment meta such as
+	 * `akismet_user_result` and `akismet_user`. If the comment cannot be found or
+	 * no API key is configured, the function returns without sending a request.
+	 *
+	 * @param int $comment_id The ID of the comment to report as non-spam.
+	 */
 	public static function submit_nonspam_comment( $comment_id ) {
 		global $wpdb, $current_user, $current_site;
 
@@ -1254,6 +1440,16 @@ class Akismet {
 		do_action( 'akismet_submit_nonspam_comment', $comment_id, $response[1] );
 	}
 
+	/**
+	 * Rechecks comments marked with akismet errors and schedules follow-up rechecks.
+	 *
+	 * Processes up to 100 comment IDs with `akismet_error` meta: validates key status, skips and cleans up
+	 * deleted/old/non-pending comments, calls the remote check for remaining pending comments, updates
+	 * per-comment history and akismet_result, transitions comments to spam or ham when appropriate,
+	 * sends delayed moderation emails or notifications, and schedules future rechecks when necessary.
+	 *
+	 * @return false|null False when the API key is invalid or an alert is present; otherwise no value.
+	 */
 	public static function cron_recheck() {
 		global $wpdb;
 
@@ -1353,6 +1549,14 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * Ensures the next Akismet recheck cron runs within a short time window by rescheduling it when necessary.
+	 *
+	 * If no recheck is scheduled or an Akismet alert code is present, the function does nothing.
+	 * When a scheduled recheck exists and is more than 20 minutes in the future, the scheduled hook
+	 * is cleared and a one-off recheck is scheduled for 5 minutes from now; the action
+	 * `akismet_scheduled_recheck` is then fired with the reason `'fix-scheduled-recheck'`.
+	 */
 	public static function fix_scheduled_recheck() {
 		$future_check = wp_next_scheduled( 'akismet_schedule_cron_recheck' );
 		if ( ! $future_check ) {
@@ -1371,6 +1575,18 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * Outputs a hidden Akismet nonce field for the comment form when Akismet is active.
+	 *
+	 * The nonce name includes the provided post ID and is rendered only if an API key
+	 * is configured and the `akismet_comment_nonce` option (after the `akismet_comment_nonce`
+	 * filter) is `'true'` or an empty string. To disable output, add a filter for
+	 * `akismet_comment_nonce` that returns any string value other than `'true'` or `''`.
+	 * Do not return boolean `false` from that filter, as `false` indicates the option
+	 * is unset and will defer to default behavior.
+	 *
+	 * @param int $post_id The post ID used to construct the nonce name.
+	 */
 	public static function add_comment_nonce( $post_id ) {
 		/**
 		 * To disable the Akismet comment nonce, add a filter for the 'akismet_comment_nonce' tag
@@ -1394,10 +1610,23 @@ class Akismet {
 		}
 	}
 
+	/**
+	 * Indicates whether Akismet is running in test mode.
+	 *
+	 * @return bool `true` if the `AKISMET_TEST_MODE` constant is defined and truthy, `false` otherwise.
+	 */
 	public static function is_test_mode() {
 		return defined( 'AKISMET_TEST_MODE' ) && AKISMET_TEST_MODE;
 	}
 
+	/**
+	 * Decides whether Akismet should discard detected spam comments instead of holding them for moderation.
+	 *
+	 * Returns `true` only when the akismet_strictness option is set to '1' and the request is neither an AJAX
+	 * request nor from a logged-in user; otherwise returns `false`.
+	 *
+	 * @return bool `true` if discarding is allowed, `false` otherwise.
+	 */
 	public static function allow_discard() {
 		if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {
 			return false;
@@ -1409,21 +1638,23 @@ class Akismet {
 		return ( get_option( 'akismet_strictness' ) === '1' );
 	}
 
+	/**
+	 * Retrieve the client's IP address from the server environment.
+	 *
+	 * @return string|null The value of `$_SERVER['REMOTE_ADDR']` if set, or `null` if not available.
+	 */
 	public static function get_ip_address() {
 		return isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : null;
 	}
 
 	/**
-	 * Using the unique values that we assign, do we consider these two comments
-	 * to be the same instance of a comment?
+	 * Determine whether two comments represent the same comment instance using Akismet identifiers.
 	 *
-	 * The only fields that matter in $comment1 and $comment2 are akismet_guid and akismet_skipped_microtime.
-	 * We set both of these during the comment-check call, and if the comment has been saved to the DB,
-	 * we save them as comment meta and add them back into the comment array before comparing the comments.
+	 * Only `akismet_guid` and `akismet_skipped_microtime` are considered for the comparison.
 	 *
 	 * @param mixed $comment1 A comment object or array.
 	 * @param mixed $comment2 A comment object or array.
-	 * @return bool Whether the two comments should be treated as the same comment.
+	 * @return bool `true` if the two comments should be treated as the same comment, `false` otherwise.
 	 */
 	private static function comments_match( $comment1, $comment2 ) {
 		$comment1 = (array) $comment1;
@@ -1443,10 +1674,10 @@ class Akismet {
 	}
 
 	/**
-	 * Does the supplied comment match the details of the one most recently stored in self::$last_comment?
+	 * Determine whether a comment matches the most recently stored comment.
 	 *
-	 * @param array $comment
-	 * @return bool Whether the comment supplied as an argument is a match for the one we have stored in $last_comment.
+	 * @param array $comment Comment data to compare against the last stored comment.
+	 * @return bool `true` if the supplied comment matches the most recently stored comment, `false` otherwise.
 	 */
 	public static function matches_last_comment( $comment ) {
 		if ( ! self::$last_comment ) {
@@ -1457,11 +1688,10 @@ class Akismet {
 	}
 
 	/**
-	 * Because of the order of operations, we don't always know the comment ID of the comment that we're checking,
-	 * so we have to be able to match the comment we cached locally with the comment from the DB.
+	 * Determine whether the comment with the given ID matches the last cached comment.
 	 *
-	 * @param int $comment_id
-	 * @return bool Whether the comment represented by $comment_id is a match for the one we have stored in $last_comment.
+	 * @param int $comment_id The ID of the comment to compare against the cached last comment.
+	 * @return bool `true` if the comment identified by `$comment_id` matches the stored last comment, `false` otherwise.
 	 */
 	public static function matches_last_comment_by_id( $comment_id ) {
 		return self::matches_last_comment( self::get_fields_for_comment_matching( $comment_id ) );
@@ -1480,15 +1710,30 @@ class Akismet {
 		);
 	}
 
+	/**
+	 * Retrieve the HTTP User-Agent header from the current request.
+	 *
+	 * @return string|null The User-Agent string if present, `null` otherwise.
+	 */
 	private static function get_user_agent() {
 		return isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : null;
 	}
 
+	/**
+	 * Get the HTTP Referer header value from the current request.
+	 *
+	 * @return string|null The referring URL from `$_SERVER['HTTP_REFERER']`, or `null` if it is not set.
+	 */
 	private static function get_referer() {
 		return isset( $_SERVER['HTTP_REFERER'] ) ? $_SERVER['HTTP_REFERER'] : null;
 	}
 
-	// return a comma-separated list of role names for the given user
+	/**
+	 * Get a comma-separated list of role names for a given user.
+	 *
+	 * @param int $user_id The ID of the user to inspect.
+	 * @return string|false A comma-separated list of role names (for example, "editor,author"), or `false` if the WP_User class is unavailable or no roles are found for the user.
+	 */
 	public static function get_user_roles( $user_id ) {
 		$comment_user = null;
 		$roles        = false;
@@ -1516,7 +1761,22 @@ class Akismet {
 		return $roles;
 	}
 
-	// filter handler used to return a spam result to pre_comment_approved
+	/ **
+	 * Override the comment approval value when it matches the last comment Akismet checked.
+	 *
+	 * If Akismet previously stored a result for the most recently checked comment and the
+	 * provided comment matches that last-checked comment, this filter handler will:
+	 * - respect an existing 'trash' approval (return it unchanged),
+	 * - increment the stored Akismet spam counter (using the `akismet_spam_count_incr` filter),
+	 * - and return the stored Akismet result instead of the incoming approval value.
+	 *
+	 * If there is no stored result or the provided comment does not match the last-checked
+	 * comment, the incoming `$approved` value is returned unchanged.
+	 *
+	 * @param mixed         $approved The current approval value for the comment (as provided to the filter).
+	 * @param WP_Comment|int|array $comment  The comment being approved (WP_Comment object, comment ID, or comment data array).
+	 * @return mixed The approval value to use: either the original `$approved` or the stored Akismet result for the last comment.
+	 */
 	public static function last_comment_status( $approved, $comment ) {
 		if ( is_null( self::$last_comment_result ) ) {
 			// We didn't have reason to store the result of the last check.
@@ -1547,12 +1807,11 @@ class Akismet {
 	}
 
 	/**
-	 * If Akismet is temporarily unreachable, we don't want to "spam" the blogger or post author
-	 * with emails for comments that will be automatically cleared or spammed on the next retry.
+	 * Prevent sending the moderation notification when Akismet has delayed handling for the comment.
 	 *
-	 * @param bool $maybe_notify Whether the notification email will be sent.
-	 * @param int   $comment_id The ID of the relevant comment.
-	 * @return bool Whether the notification email should still be sent.
+	 * @param bool $maybe_notify Whether the notification email is scheduled to be sent.
+	 * @param int  $comment_id   ID of the comment being considered.
+	 * @return bool `true` if the notification should still be sent, `false` otherwise.
 	 */
 	public static function disable_emails_if_unreachable( $maybe_notify, $comment_id ) {
 		if ( $maybe_notify ) {
@@ -1572,22 +1831,37 @@ class Akismet {
 		return $maybe_notify;
 	}
 
+	/**
+	 * Comparator for sorting history items by timestamp, newest first.
+	 *
+	 * @param array $a Array containing a 'time' numeric value.
+	 * @param array $b Array containing a 'time' numeric value.
+	 * @return int `-1` if `$a['time']` is greater than `$b['time']`, `1` otherwise.
+	 */
 	public static function _cmp_time( $a, $b ) {
 		return $a['time'] > $b['time'] ? -1 : 1;
 	}
 
+	/**
+	 * Returns the current Unix timestamp including microseconds as a float.
+	 *
+	 * @return float Current time in seconds with microsecond precision.
+	 */
 	public static function _get_microtime() {
 		$mtime = explode( ' ', microtime() );
 		return $mtime[1] + $mtime[0];
 	}
 
 	/**
-	 * Make a POST request to the Akismet API.
+	 * Send a POST request to the Akismet API and return the response headers and body.
 	 *
-	 * @param string $request The body of the request.
-	 * @param string $path The path for the request.
-	 * @param string $ip The specific IP address to hit.
-	 * @return array A two-member array consisting of the headers and the response body, both empty in the case of a failure.
+	 * Attempts an HTTPS request when supported, retries HTTPS once on transient failure,
+	 * and will fall back to HTTP and disable future SSL attempts if HTTPS consistently fails.
+	 *
+	 * @param string $request The URL-encoded request body to send.
+	 * @param string $path The API path (for example, 'comment-check' or 'verify-key').
+	 * @param string|null $ip Optional specific IP address to connect to instead of the API host.
+	 * @return array Two-element array: [0] => response headers (array), [1] => response body (string). Both elements are empty strings on failure.
 	 */
 	public static function http_post( $request, $path, $ip = null ) {
 
@@ -1699,7 +1973,14 @@ class Akismet {
 		return $simplified_response;
 	}
 
-	// given a response from an API call like check_key_status(), update the alert code options if an alert is present.
+	/**
+	 * Synchronizes Akismet alert-related WordPress options from an API response.
+	 *
+	 * Reads `x-akismet-alert-*` headers from the response headers array and ensures corresponding
+	 * `akismet_alert_*` options exist with matching values; removes options when the header is empty.
+	 *
+	 * @param array $response HTTP response array where index 0 contains headers (e.g., as returned by http_post()).
+	 */
 	public static function update_alert( $response ) {
 		$alert_option_prefix = 'akismet_alert_';
 		$alert_header_prefix = 'x-akismet-alert-';
@@ -1732,9 +2013,13 @@ class Akismet {
 	}
 
 	/**
-	 * Mark akismet-frontend.js as deferred. Because nothing depends on it, it can run at any time
-	 * after it's loaded, and the browser won't have to wait for it to load to continue
-	 * parsing the rest of the page.
+	 * Mark the akismet-frontend script tag with the `defer` attribute so the browser
+	 * can continue parsing the page without waiting for the script to execute.
+	 *
+	 * @param string $tag    The original `<script>` tag HTML.
+	 * @param string $handle The registered script handle.
+	 * @param string $src    The script source URL.
+	 * @return string The original or modified `<script>` tag.
 	 */
 	public static function set_form_js_async( $tag, $handle, $src ) {
 		if ( 'akismet-frontend' !== $handle ) {
@@ -1744,6 +2029,16 @@ class Akismet {
 		return preg_replace( '/^<script /i', '<script defer ', $tag );
 	}
 
+	/**
+	 * Generate the HTML fragment containing hidden form fields Akismet uses to detect spam.
+	 *
+	 * The returned fragment includes a honeypot textarea and, when not in AMP requests,
+	 * a hidden JS-populated timestamp field. When invoked via the Contact Form 7
+	 * filter (`wpcf7_form_elements`) the input name prefix is adjusted so CF7 will
+	 * exclude those fields from comment content.
+	 *
+	 * @return string HTML string with Akismet form fields (hidden container with prefixed fields).
+	 */
 	public static function get_akismet_form_fields() {
 		$fields = '';
 
@@ -1773,6 +2068,13 @@ class Akismet {
 		return $fields;
 	}
 
+	/ **
+	 * Echoes Akismet hidden form fields into the current form output.
+	 *
+	 * If Fluent Forms' legacy injection has already run, this function does nothing.
+	 *
+	 * @param int|null $post_id The current post or form ID where fields are being output; may be null when not applicable.
+	 * /
 	public static function output_custom_form_fields( $post_id ) {
 		if ( 'fluentform/form_element_start' === current_filter() && did_action( 'fluentform_form_element_start' ) ) {
 			// Already did this via the legacy filter.
@@ -1783,12 +2085,24 @@ class Akismet {
 		echo self::get_akismet_form_fields();
 	}
 
+	/**
+	 * Appends Akismet hidden form fields immediately before each closing </form> tag in the provided HTML.
+	 *
+	 * @param string $html The HTML content containing one or more <form> elements.
+	 * @return string The HTML with Akismet form fields injected before each </form>.
+	 */
 	public static function inject_custom_form_fields( $html ) {
 		$html = str_replace( '</form>', self::get_akismet_form_fields() . '</form>', $html );
 
 		return $html;
 	}
 
+	/**
+	 * Appends Akismet's hidden form fields to the provided HTML form content.
+	 *
+	 * @param string $html The HTML content of a form to augment.
+	 * @return string The HTML including the appended Akismet hidden fields.
+	 */
 	public static function append_custom_form_fields( $html ) {
 		$html .= self::get_akismet_form_fields();
 
@@ -1796,12 +2110,15 @@ class Akismet {
 	}
 
 	/**
-	 * Ensure that any Akismet-added form fields are included in the comment-check call.
+	 * Ensure Akismet's hidden form fields present in submitted data are added to the form values
 	 *
-	 * @param array $form
-	 * @param array $data Some plugins will supply the POST data via the filter, since they don't
-	 *                    read it directly from $_POST.
-	 * @return array $form
+	 * Copies any POST keys prefixed for Akismet (e.g., `ak_`, `_wpcf7_ak_`) into the form array using
+	 * the `POST_ak_` prefix so they will be included in the comment-check request.
+	 *
+	 * @param array    $form Form values to be sent to the comment-check.
+	 * @param array|null $data Optional source data (usually `$_POST`) to read Akismet fields from.
+	 *                         Some integrations pass their POST payload via this parameter.
+	 * @return array The form array augmented with any detected Akismet fields.
 	 */
 	public static function prepare_custom_form_values( $form, $data = null ) {
 		if ( 'fluentform/akismet_fields' === current_filter() && did_filter( 'fluentform_akismet_fields' ) ) {
@@ -1830,6 +2147,15 @@ class Akismet {
 		return $form;
 	}
 
+	/**
+	 * Display a minimal HTML error page with the provided message and terminate activation.
+	 *
+	 * Outputs a simple HTML document containing $message, optionally removes the Akismet
+	 * plugin from the active plugins list when $deactivate is true, and then exits.
+	 *
+	 * @param string $message   The message to display to the user.
+	 * @param bool   $deactivate Whether to deactivate the plugin before exiting. Default true.
+	 */
 	private static function bail_on_activation( $message, $deactivate = true ) {
 		?>
 <!doctype html>
@@ -1872,6 +2198,14 @@ p {
 		exit;
 	}
 
+	/**
+	 * Renders a view file from the plugin's views directory, making entries from `$args` available as local variables.
+	 *
+	 * The `$args` array is passed through the `akismet_view_arguments` filter before extraction. The view file loaded
+	 * is AKISMET__PLUGIN_DIR . 'views/' . basename($name) . '.php' and is included only if it exists.
+	 *
+	 * @param string $name View name or filename (basename is used; extension not required).
+	 * @param array  $args Associative array of variables to extract into the view scope.
 	public static function view( $name, array $args = array() ) {
 		$args = apply_filters( 'akismet_view_arguments', $args, $name );
 
@@ -1887,8 +2221,11 @@ p {
 	}
 
 	/**
-	 * Attached to activate_{ plugin_basename( __FILES__ ) } by register_activation_hook()
+	 * Run when the plugin is activated to verify compatibility and record activation.
 	 *
+	 * Checks the current WordPress version against the plugin minimum requirement and aborts activation with an explanatory message if the version is too old. If activation is occurring from the admin plugins page, records an option to indicate Akismet was activated.
+	 *
+	 * @return void
 	 * @static
 	 */
 	public static function plugin_activation() {
@@ -1906,7 +2243,10 @@ p {
 	}
 
 	/**
-	 * Removes all connection options
+	 * Deactivates the configured API key and removes Akismet scheduled cron events.
+	 *
+	 * Deactivates the current API key and unschedules the recurring tasks used by
+	 * Akismet (akismet_schedule_cron_recheck and akismet_scheduled_delete).
 	 *
 	 * @static
 	 */
@@ -1929,23 +2269,22 @@ p {
 	}
 
 	/**
-	 * Essentially a copy of WP's build_query but one that doesn't expect pre-urlencoded values.
+	 * Builds a URL-encoded query string from an associative array.
 	 *
-	 * @param array $args An array of key => value pairs
-	 * @return string A string ready for use as a URL query string.
+	 * @param array $args Array of key => value pairs to include in the query string.
+	 * @return string The URL-encoded query string suitable for use in a URL.
 	 */
 	public static function build_query( $args ) {
 		return _http_build_query( $args, '', '&' );
 	}
 
 	/**
-	 * Log debugging info to the error log.
+	 * Log debugging information to the PHP error log.
 	 *
-	 * Enabled when WP_DEBUG_LOG is enabled (and WP_DEBUG, since according to
-	 * core, "WP_DEBUG_DISPLAY and WP_DEBUG_LOG perform no function unless
-	 * WP_DEBUG is true), but can be disabled via the akismet_debug_log filter.
+	 * Logging occurs only when WP_DEBUG, WP_DEBUG_LOG, and AKISMET_DEBUG are all true,
+	 * and the `akismet_debug_log` filter returns a truthy value.
 	 *
-	 * @param mixed $akismet_debug The data to log.
+	 * @param mixed $akismet_debug Data to be logged.
 	 */
 	public static function log( $akismet_debug ) {
 		if ( apply_filters( 'akismet_debug_log', defined( 'WP_DEBUG' ) && WP_DEBUG && defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG && defined( 'AKISMET_DEBUG' ) && AKISMET_DEBUG ) ) {
@@ -1954,12 +2293,13 @@ p {
 	}
 
 	/**
-	 * Check pingbacks for spam before they're saved to the DB.
+	 * Inspect a pingback XML-RPC request for spam and block it if Akismet identifies it as spam.
 	 *
-	 * @param string           $method The XML-RPC method that was called.
-	 * @param array            $args This and the $server arg are marked as optional since plugins might still be
-	 *                               calling do_action( 'xmlrpc_action', [...] ) without the arguments that were added in WP 5.7.
-	 * @param wp_xmlrpc_server $server
+	 * If the request is identified as spam and a server instance is provided, an IXR error is sent to reject the pingback.
+	 *
+	 * @param string           $method The XML-RPC method that was called; only `pingback.ping` is inspected.
+	 * @param array            $args   Optional. XML-RPC method arguments. Older code paths may call the action without these parameters.
+	 * @param wp_xmlrpc_server $server Optional. XML-RPC server instance used to report an error when the pingback is blocked.
 	 */
 	public static function pre_check_pingback( $method, $args = array(), $server = null ) {
 		if ( $method !== 'pingback.ping' ) {
@@ -2025,10 +2365,15 @@ p {
 	}
 
 	/**
-	 * Ensure that we are loading expected scalar values from akismet_as_submitted commentmeta.
+	 * Sanitize akismet_as_submitted comment meta to include only allowed scalar fields.
 	 *
-	 * @param mixed $meta_value
-	 * @return mixed
+	 * Converts the provided meta value to an array and removes any entries that are
+	 * not scalar or not present in the whitelist of allowed keys. Keys beginning
+	 * with `POST_ak_` are preserved regardless of whitelist membership. If the
+	 * original value is empty, it is returned unchanged.
+	 *
+	 * @param mixed $meta_value The raw value retrieved from comment meta.
+	 * @return mixed The sanitized array of allowed scalar fields, or the original empty value unchanged.
 	 */
 	private static function sanitize_comment_as_submitted( $meta_value ) {
 		if ( empty( $meta_value ) ) {
@@ -2055,6 +2400,14 @@ p {
 		return $meta_value;
 	}
 
+	/**
+	 * Determine whether a predefined Akismet API key is available.
+	 *
+	 * Checks for the WPCOM_API_KEY constant and falls back to the
+	 * `akismet_predefined_api_key` filter for custom overrides.
+	 *
+	 * @return bool `true` if a predefined API key is present (WPCOM_API_KEY defined or the `akismet_predefined_api_key` filter returns true), `false` otherwise.
+	 */
 	public static function predefined_api_key() {
 		if ( defined( 'WPCOM_API_KEY' ) ) {
 			return true;
@@ -2063,13 +2416,13 @@ p {
 		return apply_filters( 'akismet_predefined_api_key', false );
 	}
 
-	/**
-	 * Controls the display of a privacy related notice underneath the comment
-	 * form using the `akismet_comment_form_privacy_notice` option and filter
-	 * respectively.
+	/ **
+	 * Outputs a privacy notice beneath the comment form when the `akismet_comment_form_privacy_notice`
+	 * option or `akismet_comment_form_privacy_notice` filter is set to `'display'`.
 	 *
-	 * Default is to not display the notice, leaving the choice to site admins,
-	 * or integrators.
+	 * The markup is passed through the `akismet_comment_form_privacy_notice_markup` filter before output.
+	 *
+	 * @return void
 	 */
 	public static function display_comment_form_privacy_notice() {
 		if ( 'display' !== apply_filters( 'akismet_comment_form_privacy_notice', get_option( 'akismet_comment_form_privacy_notice', 'hide' ) ) ) {
@@ -2097,6 +2450,12 @@ p {
 		);
 	}
 
+	/**
+	 * Registers and enqueues the Akismet frontend JavaScript when appropriate.
+	 *
+	 * Registers and enqueues the 'akismet-frontend' script (from the plugin's _inc/akismet-frontend.js)
+	 * if the current request is not an admin page, is not an AMP request, and an Akismet API key is configured.
+	 */
 	public static function load_form_js() {
 		if (
 			! is_admin()
@@ -2109,7 +2468,16 @@ p {
 	}
 
 	/**
-	 * Add the form JavaScript when we detect that a supported form shortcode is being parsed.
+	 * Ensure Akismet frontend JavaScript is enqueued when a supported form shortcode is parsed.
+	 *
+	 * When the parsed shortcode tag matches one of the supported form integrations, triggers
+	 * loading of the Akismet form script so hidden fields and JS interactions are available.
+	 *
+	 * @param mixed  $return_value The original shortcode callback return value (passed through).
+	 * @param string $tag          The shortcode tag being parsed.
+	 * @param array  $attr         The shortcode attributes.
+	 * @param array  $m            Regex match array for the shortcode.
+	 * @return mixed               The original `$return_value`, unchanged.
 	 */
 	public static function load_form_js_via_filter( $return_value, $tag, $attr, $m ) {
 		if ( in_array( $tag, array( 'contact-form', 'gravityform', 'contact-form-7', 'formidable', 'fluentform' ) ) ) {
@@ -2120,11 +2488,15 @@ p {
 	}
 
 	/**
-	 * Was the last entry in the comment history created by Akismet?
-	 *
-	 * @param int $comment_id The ID of the comment.
-	 * @return bool
-	 */
+		 * Determine whether the most recent entry in a comment's Akismet history was created by Akismet.
+		 *
+		 * Checks the latest akismet_history entry for the comment and returns `true` when its
+		 * `event` field matches known Akismet-generated events (for example: `check-spam`,
+		 * `recheck-ham`, `webhook-spam`, etc.).
+		 *
+		 * @param int $comment_id The ID of the comment.
+		 * @return bool `true` if the last history entry was created by Akismet, `false` otherwise.
+		 */
 	public static function last_comment_status_change_came_from_akismet( $comment_id ) {
 		$history = self::get_comment_history( $comment_id );
 

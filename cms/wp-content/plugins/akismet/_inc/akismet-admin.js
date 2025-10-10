@@ -8,6 +8,14 @@ document.addEventListener( 'DOMContentLoaded', function() {
 	initCompatiblePluginsShowMoreToggle();
 } );
 
+/**
+ * Initialize the show-more toggle for the Akismet compatible plugins list.
+ *
+ * Locates the plugins section, its list, and the show-more button; if any are missing, no action is taken.
+ * When the button is clicked, toggles the list's `is-expanded` class, updates the button label from
+ * `data-labelOpen`/`data-labelClosed`, sets `aria-expanded` accordingly, and if the list is collapsed while
+ * the section is off-screen, scrolls the section into view at the start.
+ */
 function initCompatiblePluginsShowMoreToggle() {
   const section = document.querySelector( '.akismet-compatible-plugins' );
   const list = document.querySelector( '.akismet-compatible-plugins__list' );
