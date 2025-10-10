@@ -1,0 +1,6 @@
+<div *ngIf="loading">Loading posts...</div>
+<div *ngIf="error">Error: {{ error.message }}</div>
+
+<ul *ngIf="posts.length">
+  <li *ngFor="let post of posts">{{ post.title }} - {{ post.date | date }}</li>
+</ul>

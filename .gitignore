@@ -1,0 +1,105 @@
+########################################
+### Angular Frontend
+########################################
+
+# Build artifacts
+dist/
+tmp/
+app/**/*.js
+app/**/*.js.map
+
+# Dependencies
+frontend/node_modules/
+bower_components/
+
+# Angular cache and lock files
+.angular/
+.angular/cache/
+package-lock.json
+
+# Logs and coverage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+
+# E2E test build outputs
+e2e/*.js
+e2e/*.map
+
+########################################
+### SASS / CSS
+########################################
+*.css.map
+*.sass.map
+*.scss.map
+.sass-cache/
+
+########################################
+### WordPress CMS
+########################################
+
+# Core WordPress files (pulled by Docker, not tracked)
+cms/wp-admin/
+cms/wp-includes/
+cms/index.php
+cms/license.txt
+cms/readme.html
+cms/wp-*.php
+cms/xmlrpc.php
+
+# WP Content — only keep your custom theme/plugin if applicable
+cms/wp-content/index.php
+cms/wp-content/languages/
+cms/wp-content/plugins/index.php
+cms/wp-content/themes/index.php
+cms/wp-content/uploads/
+
+# Ignore example themes and plugins
+cms/wp-content/themes/twenty*/
+cms/wp-content/plugins/hello.php
+
+# Config and sensitive files
+wp-config.php
+.env
+.htaccess
+
+# WordPress logs
+*.log
+
+########################################
+### Python / Docker Automation
+########################################
+
+# Python cache and virtualenv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env/
+*.env
+
+# Docker artifacts
+*.pid
+*.tar
+*.gz
+*.sql
+docker-compose.override.yml
+
+# Local backup directory
+backups/
+!backups/.gitkeep
+
+########################################
+### IDEs / OS Files
+########################################
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+connect.lock
+libpeerconnection.log
+testem.log
+typings/
