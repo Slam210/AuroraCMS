@@ -7,6 +7,11 @@ on:
     branches:
       - main
       - develop
+    paths:
+      - 'frontend/**'
+      - 'cms/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/**'
   pull_request:
     branches:
       - main
@@ -47,7 +52,7 @@ jobs:
       - name: Build Angular App
         working-directory: ./frontend
         # Create production-ready bundle
-        run: npm run build -- --prod  
+        run: npm run build --prod  
 
   # Job 2: Build Backend & Docker
   build-backend:
@@ -70,4 +75,4 @@ jobs:
       - name: Build Docker Images
         run: |
           # Build containers defined in docker-compose.yml
-          docker-compose -f docker-compose.yml build
+          docker compose -f docker-compose.yml build
