@@ -12,11 +12,11 @@
 // Adds theme support for post formats.
 if ( ! function_exists( 'twentytwentyfive_post_format_setup' ) ) :
 	/**
-	 * Adds theme support for post formats.
+	 * Declare theme support for the theme's post formats.
+	 *
+	 * Registers the following post formats: aside, audio, chat, gallery, image, link, quote, status, and video.
 	 *
 	 * @since Twenty Twenty-Five 1.0
-	 *
-	 * @return void
 	 */
 	function twentytwentyfive_post_format_setup() {
 		add_theme_support( 'post-formats', array( 'aside', 'audio', 'chat', 'gallery', 'image', 'link', 'quote', 'status', 'video' ) );
@@ -27,11 +27,9 @@ add_action( 'after_setup_theme', 'twentytwentyfive_post_format_setup' );
 // Enqueues editor-style.css in the editors.
 if ( ! function_exists( 'twentytwentyfive_editor_style' ) ) :
 	/**
-	 * Enqueues editor-style.css in the editors.
+	 * Enqueues the editor stylesheet for the WordPress editor.
 	 *
 	 * @since Twenty Twenty-Five 1.0
-	 *
-	 * @return void
 	 */
 	function twentytwentyfive_editor_style() {
 		add_editor_style( 'assets/css/editor-style.css' );
@@ -42,11 +40,9 @@ add_action( 'after_setup_theme', 'twentytwentyfive_editor_style' );
 // Enqueues style.css on the front.
 if ( ! function_exists( 'twentytwentyfive_enqueue_styles' ) ) :
 	/**
-	 * Enqueues style.css on the front.
+	 * Enqueues the parent theme's front-end stylesheet using the theme's current version.
 	 *
 	 * @since Twenty Twenty-Five 1.0
-	 *
-	 * @return void
 	 */
 	function twentytwentyfive_enqueue_styles() {
 		wp_enqueue_style(
@@ -62,11 +58,9 @@ add_action( 'wp_enqueue_scripts', 'twentytwentyfive_enqueue_styles' );
 // Registers custom block styles.
 if ( ! function_exists( 'twentytwentyfive_block_styles' ) ) :
 	/**
-	 * Registers custom block styles.
+	 * Registers a "Checkmark" custom block style for the Core List block.
 	 *
 	 * @since Twenty Twenty-Five 1.0
-	 *
-	 * @return void
 	 */
 	function twentytwentyfive_block_styles() {
 		register_block_style(
@@ -91,10 +85,14 @@ add_action( 'init', 'twentytwentyfive_block_styles' );
 // Registers pattern categories.
 if ( ! function_exists( 'twentytwentyfive_pattern_categories' ) ) :
 	/**
-	 * Registers pattern categories.
+	 * Register pattern categories for pages and post formats.
+	 *
+	 * Registers the 'twentytwentyfive_page' category labeled "Pages" with the
+	 * description "A collection of full page layouts." and the
+	 * 'twentytwentyfive_post-format' category labeled "Post formats" with the
+	 * description "A collection of post format patterns."
 	 *
 	 * @since Twenty Twenty-Five 1.0
-	 *
 	 * @return void
 	 */
 	function twentytwentyfive_pattern_categories() {
@@ -142,11 +140,13 @@ add_action( 'init', 'twentytwentyfive_register_block_bindings' );
 // Registers block binding callback function for the post format name.
 if ( ! function_exists( 'twentytwentyfive_format_binding' ) ) :
 	/**
-	 * Callback function for the post format name block binding source.
+	 * Provide the human-readable post format name for the current post for block bindings.
+	 *
+	 * Returns the post format's label for non-standard formats; returns nothing for the 'standard' format or when no format is set.
 	 *
 	 * @since Twenty Twenty-Five 1.0
 	 *
-	 * @return string|void Post format name, or nothing if the format is 'standard'.
+	 * @return string|void The human-readable post format name, or nothing if the format is 'standard' or no format is set.
 	 */
 	function twentytwentyfive_format_binding() {
 		$post_format_slug = get_post_format();

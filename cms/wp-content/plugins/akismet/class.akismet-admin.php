@@ -45,6 +45,12 @@ class Akismet_Admin {
 		'plugins.php',
 	);
 
+	/**
+	 * Initialize Akismet admin hooks and handle an API key submission if present.
+	 *
+	 * Ensures admin hooks are registered once, and when a POST with action
+	 * 'enter-key' is received, processes the submitted API key.
+	 */
 	public static function init() {
 		if ( ! self::$initiated ) {
 			self::init_hooks();
@@ -55,6 +61,13 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Initialize Akismet admin hooks and redirect legacy stats page bookmarks to the current stats view.
+	 *
+	 * Sets the internal initiated flag and registers the WordPress actions and filters required
+	 * for the Akismet admin UI, dashboard/right‑now stats, comment actions, AJAX endpoints,
+	 * plugin links, export filtering, plugin description modification, and privacy data erasure.
+	 */
 	public static function init_hooks() {
 		// The standalone stats page was removed in 3.0 for an all-in-one config and stats page.
 		// Redirect any links that might have been bookmarked or in browser history.
@@ -91,6 +104,13 @@ class Akismet_Admin {
 		add_filter( 'wp_privacy_personal_data_erasers', array( 'Akismet_Admin', 'register_personal_data_eraser' ), 1 );
 	}
 
+	/**
+	 * Initialize Akismet admin features for the current request.
+	 *
+	 * If the legacy activation flag is present, redirects the user to the Akismet init page.
+	 * Registers the "Comment History" meta box on the comment edit screen and, when available,
+	 * adds Akismet's privacy policy content describing data collected from commenters.
+	 */
 	public static function admin_init() {
 		if ( get_option( 'Activated_Akismet' ) ) {
 			delete_option( 'Activated_Akismet' );
@@ -110,6 +130,12 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Register the Akismet admin menu in the WordPress admin.
+	 *
+	 * Hooks the menu-loading routine into Jetpack's admin menu action when Jetpack is active;
+	 * otherwise loads the Akismet admin menu immediately.
+	 */
 	public static function admin_menu() {
 		if ( class_exists( 'Jetpack' ) ) {
 			add_action( 'jetpack_admin_menu', array( 'Akismet_Admin', 'load_menu' ) );
@@ -118,18 +144,36 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Runs Akismet admin header logic for users who can manage site options.
+	 *
+	 * This hook entry point is executed on the admin head; it takes effect only for users with the `manage_options` capability.
+	 */
 	public static function admin_head() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 	}
 
+	/**
+	 * Prepend a Settings link to the plugin action links that points to the Akismet settings page.
+	 *
+	 * @param array $links Existing plugin action links.
+	 * @return array The plugin action links with the Settings link added at the beginning.
+	 */
 	public static function admin_plugin_settings_link( $links ) {
 		$settings_link = '<a href="' . esc_url( self::get_page_url() ) . '">' . __( 'Settings', 'akismet' ) . '</a>';
 		array_unshift( $links, $settings_link );
 		return $links;
 	}
 
+	/ **
+	 * Register the Akismet admin page and attach its contextual help loader.
+	 *
+	 * When Jetpack is present, adds Akismet as a submenu under Jetpack; otherwise
+	 * adds it as a Settings (Options) page. If the page is created successfully,
+	 * schedules the `admin_help` callback to run when that admin page is loaded.
+	 */
 	public static function load_menu() {
 		if ( class_exists( 'Jetpack' ) ) {
 			$hook = add_submenu_page( 'jetpack', __( 'Akismet Anti-spam', 'akismet' ), __( 'Akismet Anti-spam', 'akismet' ), 'manage_options', 'akismet-key-config', array( 'Akismet_Admin', 'display_page' ) );
@@ -142,6 +186,14 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Enqueues Akismet admin styles and scripts and localizes runtime data on matching admin pages.
+	 *
+	 * Registers and enqueues the plugin's CSS (including RTL variants), admin CSS with inline overrides,
+	 * and JavaScript assets, and localizes the `WPAkismet` script object with a nonce and UI strings.
+	 * When present and valid, a `start_recheck` flag is added from the `akismet_recheck` query parameter,
+	 * and an `enable_mshots` flag is added when the `akismet_enable_mshots` filter allows it.
+	 */
 	public static function load_resources() {
 		global $hook_suffix;
 
@@ -204,9 +256,11 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * Add help to the Akismet page
+	 * Register contextual help tabs and the help sidebar for the Akismet admin screen.
 	 *
-	 * @return false if not the Akismet page
+	 * Adds the appropriate help tabs (Overview, setup/signup, enter API key, stats,
+	 * settings, and account) based on the current Akismet admin view and whether an
+	 * API key is present, and sets the help sidebar with links to Akismet resources.
 	 */
 	public static function admin_help() {
 		$current_screen = get_current_screen();
@@ -311,6 +365,13 @@ class Akismet_Admin {
 		);
 	}
 
+	/**
+	 * Process and persist Akismet admin form settings and an optionally submitted API key.
+	 *
+	 * Updates akismet_strictness, akismet_show_user_comments_approved, and the comment form privacy notice option based on POST data; if a new API key is provided, attempts to save and validate it, or deletes the stored key when an empty key replaces a previous one.
+	 *
+	 * @return bool `true` if the form was processed, `false` if nonce verification failed or saving was prevented by a predefined API key.
+	 */
 	public static function enter_api_key() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			die( __( 'Cheatin&#8217; uh?', 'akismet' ) );
@@ -349,6 +410,20 @@ class Akismet_Admin {
 		return true;
 	}
 
+	/**
+	 * Verify an Akismet API key, save it when permitted, and record the resulting status notice.
+	 *
+	 * If the key is valid and the associated Akismet account status is `active`, `active-dunning`, or
+	 * `no-sub`, the key is persisted to the `wordpress_api_key` option. The method sets
+	 * self::$notices['status'] to reflect the outcome:
+	 * - `'new-key-valid'` when the account status is `active`
+	 * - the full Akismet user object when the account status is `notice`
+	 * - the account status string for other returned statuses
+	 * - `'new-key-invalid'` when verification succeeded but no account data was returned
+	 * - `'new-key-invalid'` or `'new-key-failed'` when key verification itself fails
+	 *
+	 * @param string $api_key The API key to verify and potentially save.
+	 */
 	public static function save_key( $api_key ) {
 		$key_status = Akismet::verify_key( $api_key );
 
@@ -375,6 +450,11 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Outputs a "Spam" dashboard widget showing how many spam comments Akismet has blocked and a link to Akismet stats.
+	 *
+	 * Does nothing if the "Right Now" section has already displayed this information or if no spam count is stored.
+	 */
 	public static function dashboard_stats() {
 		if ( did_action( 'rightnow_end' ) ) {
 			return; // We already displayed this info in the "Right Now" section
@@ -402,7 +482,16 @@ class Akismet_Admin {
 		) . '</p>';
 	}
 
-	// WP 2.5+
+	/**
+	 * Outputs an Akismet summary for the "Right Now" dashboard section.
+	 *
+	 * Displays a localized message that includes the total number of spam comments Akismet
+	 * has protected the site from and a linked summary of the current spam queue.
+	 * The message is printed as an HTML paragraph and includes links to Akismet and the
+	 * site's spam comments admin page.
+	 *
+	 * @return void Prints an HTML paragraph containing the Akismet stats and spam-queue link.
+	 */
 	public static function rightnow_stats() {
 		if ( $count = get_option( 'akismet_spam_count' ) ) {
 			$intro = sprintf(
@@ -444,6 +533,17 @@ class Akismet_Admin {
 		echo "<p class='akismet-right-now'>$text</p>\n";
 	}
 
+	/**
+	 * Render the "Check for Spam" action button on the Comments admin screen when appropriate.
+	 *
+	 * When $comment_status is 'all' or 'moderated', this outputs the button markup and related
+	 * wrapper HTML. The button includes data attributes used by the recheck flow (progress label,
+	 * success/failure URLs, pending comment count, and a nonce). The button is enabled only when
+	 * there are moderated comments; if no Akismet API key is present it links to the Akismet
+	 * configuration page and disables AJAX behavior.
+	 *
+	 * @param string $comment_status The current comments list filter (e.g., 'all' or 'moderated').
+	 */
 	public static function check_for_spam_button( $comment_status ) {
 		// The "Check for Spam" button should only appear when the page might be showing
 		// a comment with comment_approved=0, which means an un-trashed, un-spammed,
@@ -499,6 +599,13 @@ class Akismet_Admin {
 		echo '<span class="checkforspam-spinner"></span>';
 	}
 
+	/**
+	 * Handles a request to recheck a portion of the pending comment queue for spam.
+	 *
+	 * Verifies the incoming request (nonce and action), triggers a scheduled recheck fix, processes a configurable portion
+	 * of the pending queue via recheck_queue_portion(), and then returns the resulting counts as JSON when called via
+	 * AJAX or redirects back to the referring admin page when called from a normal request.
+	 */
 	public static function recheck_queue() {
 		global $wpdb;
 
@@ -532,6 +639,25 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Rechecks a page of pending comments in the moderation queue with Akismet.
+	 *
+	 * Revalidates up to $limit comments starting at offset $start from the comments table
+	 * where comment_approved = '0' and returns counts of processed items by outcome.
+	 *
+	 * @param int $start Zero-based offset into the pending-comments list. Defaults to 0.
+	 * @param int $limit Maximum number of comments to recheck. Values less than or equal to 0 are treated as 100.
+	 * @return array{
+	 *     processed:int,
+	 *     spam:int,
+	 *     ham:int,
+	 *     error:int
+	 * } Associative array with:
+	 *     - `processed`: number of comments retrieved and processed,
+	 *     - `spam`: number of comments classified as spam,
+	 *     - `ham`: number of comments classified as not-spam,
+	 *     - `error`: number of comments that produced a non-boolean/non-string result (treated as errors).
+	 */
 	public static function recheck_queue_portion( $start = 0, $limit = 100 ) {
 		global $wpdb;
 
@@ -569,7 +695,15 @@ class Akismet_Admin {
 		return $result_counts;
 	}
 
-	// Adds an 'x' link next to author URLs, clicking will remove the author URL and show an undo link
+	/**
+	 * Handle an admin/AJAX request to remove the author URL from a comment and return the update result.
+	 *
+	 * Expects a POST field `id` containing the comment ID and verifies the nonce `comment_author_url_nonce`.
+	 * Requires the current user to have the `edit_comment` capability for the target comment.
+	 *
+	 * On success the function clears the comment's `comment_author_url`, fires the `comment_remove_author_url` action,
+	 * outputs the result of the comment update, and terminates execution.
+	 */
 	public static function remove_comment_author_url() {
 		if ( ! empty( $_POST['id'] ) && check_admin_referer( 'comment_author_url_nonce' ) ) {
 			$comment_id = intval( $_POST['id'] );
@@ -583,6 +717,14 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Sets a comment's author URL from POST data and updates the comment if permitted.
+	 *
+	 * Verifies the 'comment_author_url_nonce' nonce and requires POST fields 'id' (comment ID)
+	 * and 'url' (author URL). The current user must have the 'edit_comment' capability for
+	 * the target comment. If permitted, the provided URL is sanitized, the `comment_add_author_url`
+	 * action is fired, the comment is updated, the update result is printed, and execution stops.
+	 */
 	public static function add_comment_author_url() {
 		if ( ! empty( $_POST['id'] ) && ! empty( $_POST['url'] ) && check_admin_referer( 'comment_author_url_nonce' ) ) {
 			$comment_id = intval( $_POST['id'] );
@@ -596,6 +738,17 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Augments the comment row actions and displays Akismet-related status for a comment.
+	 *
+	 * Adds a "History" link into the row action links (after Edit or Unspam), outputs an inline
+	 * Akismet status label linking to the comment history, and optionally outputs the comment
+	 * author's approved comment count. Also echoes status HTML directly for display in the row.
+	 *
+	 * @param array        $a       Array of existing row action links.
+	 * @param WP_Comment   $comment Comment object for the current row.
+	 * @return array The possibly modified array of row action links.
+	 */
 	public static function comment_row_action( $a, $comment ) {
 		$akismet_result = get_comment_meta( $comment->comment_ID, 'akismet_result', true );
 		if ( ! $akismet_result && get_comment_meta( $comment->comment_ID, 'akismet_skipped', true ) ) {
@@ -667,6 +820,14 @@ class Akismet_Admin {
 		return $a;
 	}
 
+	/ **
+	 * Render the Akismet status/history panel for a comment.
+	 *
+	 * Outputs HTML paragraphs describing Akismet events for the given comment, including human-readable
+	 * relative timestamps when available. If no history exists, outputs a "No comment history." message.
+	 *
+	 * @param object|WP_Comment $comment Comment object whose Akismet history will be displayed.
+	 */
 	public static function comment_status_meta_box( $comment ) {
 		$history = Akismet::get_comment_history( $comment->comment_ID );
 
@@ -814,6 +975,13 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Adds a "Settings" link to the plugin action links when the filtered plugin file is Akismet.
+	 *
+	 * @param array  $links Existing action links for the plugin.
+	 * @param string $file  Plugin file path being filtered (as passed by WordPress).
+	 * @return array The action links array, with a Settings link appended if the file matches Akismet.
+	 */
 	public static function plugin_action_links( $links, $file ) {
 		if ( $file == plugin_basename( plugin_dir_url( __FILE__ ) . '/akismet.php' ) ) {
 			$links[] = '<a href="' . esc_url( self::get_page_url() ) . '">' . esc_html__( 'Settings', 'akismet' ) . '</a>';
@@ -823,7 +991,16 @@ class Akismet_Admin {
 	}
 
 	// Total spam in queue
-	// get_option( 'akismet_spam_count' ) is the total caught ever
+	/**
+	 * Retrieve the number of spam comments tracked by Akismet.
+	 *
+	 * If `$type` is false (default), returns the total spam count (cached for one hour).
+	 * If `$type` is 'comments' or 'comment', counts spam rows with an empty `comment_type`.
+	 * Otherwise, counts spam rows filtered by the given `comment_type`.
+	 *
+	 * @param string|false $type Optional. Comment type to filter by, or false to return the total spam count. Default false.
+	 * @return int The number of spam comments. 
+	 */
 	public static function get_spam_count( $type = false ) {
 		global $wpdb;
 
@@ -843,7 +1020,16 @@ class Akismet_Admin {
 	}
 
 	// Check connectivity between the WordPress blog and Akismet's servers.
-	// Returns an associative array of server IP addresses, where the key is the IP address, and value is true (available) or false (unable to connect).
+	/**
+	 * Check connectivity to Akismet servers by resolving rest.akismet.com and verifying each resolved IP.
+	 *
+	 * If the system cannot resolve hostnames or no IPs are found, an empty array is returned.
+	 *
+	 * @return array<string,string> Associative array mapping each resolved IP address to its connectivity status:
+	 *                              - `'connected'` when a verification response of `'valid'` or `'invalid'` is received,
+	 *                              - an error string returned by verification when available,
+	 *                              - or `'unable to connect'` when no response is available.
+	 */
 	public static function check_server_ip_connectivity() {
 
 		$servers = $ips = array();
@@ -870,7 +1056,15 @@ class Akismet_Admin {
 		return $servers;
 	}
 
-	// Simpler connectivity check
+	/**
+	 * Check Akismet server connectivity and refresh cached server status when appropriate.
+	 *
+	 * Performs an HTTP request to the Akismet test endpoint, logs diagnostic data, and may update
+	 * the cached `akismet_available_servers` and `akismet_connectivity_time` options.
+	 *
+	 * @param int $cache_timeout Number of seconds to consider cached connectivity data fresh (default 86400).
+	 * @return bool `true` if the Akismet test endpoint responded with the string 'connected', `false` otherwise.
+	 */
 	public static function check_server_connectivity( $cache_timeout = 86400 ) {
 
 		$debug                        = array();
@@ -907,15 +1101,23 @@ class Akismet_Admin {
 		return false;
 	}
 
-	// Check the server connectivity and store the available servers in an option.
+	/**
+	 * Retrieve and cache Akismet server connectivity status.
+	 *
+	 * Checks connectivity to Akismet servers, updates stored connectivity information for later retrieval,
+	 * and caches the result for the given timeout.
+	 *
+	 * @param int $cache_timeout Number of seconds to cache the connectivity result. Default 86400 (24 hours).
+	 * @return bool `true` if the server connectivity test indicates servers are reachable, `false` otherwise.
+	 */
 	public static function get_server_connectivity( $cache_timeout = 86400 ) {
 		return self::check_server_connectivity( $cache_timeout );
 	}
 
 	/**
-	 * Find out whether any comments in the Pending queue have not yet been checked by Akismet.
+	 * Determine whether any pending comments have an `akismet_error` meta entry and therefore await Akismet checking.
 	 *
-	 * @return bool
+	 * @return bool `true` if at least one pending comment has the `akismet_error` meta (awaiting check), `false` otherwise.
 	 */
 	public static function are_any_comments_waiting_to_be_checked() {
 		return ! ! get_comments(
@@ -933,6 +1135,15 @@ class Akismet_Admin {
 		);
 	}
 
+	/ **
+	 * Build the admin URL for an Akismet settings subpage.
+	 *
+	 * Accepts 'config' (default), 'stats', 'delete_key', or 'init' and returns the corresponding admin URL
+	 * with appropriate query parameters (including a nonce for delete_key).
+	 *
+	 * @param string $page Optional. Target subpage: 'config', 'stats', 'delete_key', or 'init'. Default 'config'.
+	 * @return string The fully formed admin URL for the requested Akismet page.
+	 */
 	public static function get_page_url( $page = 'config' ) {
 
 		$args = array( 'page' => 'akismet-key-config' );
@@ -959,6 +1170,12 @@ class Akismet_Admin {
 		return add_query_arg( $args, menu_page_url( 'akismet-key-config', false ) );
 	}
 
+	/**
+	 * Fetches Akismet account/subscription data associated with the given API key.
+	 *
+	 * @param string $api_key The Akismet API key to look up.
+	 * @return object|false Decoded subscription data object when available, `false` otherwise.
+	 */
 	public static function get_akismet_user( $api_key ) {
 		$akismet_user = false;
 
@@ -980,6 +1197,15 @@ class Akismet_Admin {
 		return $akismet_user;
 	}
 
+	/**
+	 * Fetches Akismet statistics for predefined intervals and returns decoded results.
+	 *
+	 * Sends requests for the "6-months" and "all" intervals and returns an associative array
+	 * mapping each interval to its decoded stats object when a valid JSON object is received.
+	 *
+	 * @param string $api_key The Akismet API key to use for the requests.
+	 * @return array An associative array keyed by interval ('6-months', 'all') containing decoded stat objects; intervals with invalid or missing responses are omitted. 
+	 */
 	public static function get_stats( $api_key ) {
 		$stat_totals = array();
 
@@ -1009,6 +1235,17 @@ class Akismet_Admin {
 		return $stat_totals;
 	}
 
+	/**
+	 * Verify a WordPress.com API key and retrieve the corresponding Akismet account data.
+	 *
+	 * Builds and sends a verification request for the provided API key and user ID, optionally
+	 * merging additional request arguments, and returns decoded account information when available.
+	 *
+	 * @param string       $api_key The WordPress.com API key to verify.
+	 * @param int|string   $user_id The WordPress.com user ID associated with the key.
+	 * @param array        $extra   Optional additional request arguments to include in the verification request.
+	 * @return mixed       The decoded account object when a JSON response is returned; otherwise the raw HTTP response value.
+	 */
 	public static function verify_wpcom_key( $api_key, $user_id, $extra = array() ) {
 		$request_args = array_merge(
 			array(
@@ -1032,6 +1269,13 @@ class Akismet_Admin {
 		return $akismet_account;
 	}
 
+	/**
+	 * Connects the current Jetpack user to Akismet and saves their API key when successful.
+	 *
+	 * If a Jetpack user with an API key and user ID is available, verifies the WP.com key and, on successful verification, saves the returned Akismet API key. The connection is considered successful when the Akismet account status is `active`, `active-dunning`, or `no-sub`.
+	 *
+	 * @return bool `true` if a valid Akismet account was found and its API key saved, `false` otherwise.
+	 */
 	public static function connect_jetpack_user() {
 
 		if ( $jetpack_user = self::get_jetpack_user() ) {
@@ -1048,6 +1292,13 @@ class Akismet_Admin {
 		return false;
 	}
 
+	/**
+	 * Renders an alert notice in the Akismet admin UI.
+	 *
+	 * Retrieves the `akismet_alert_code` and `akismet_alert_msg` options and renders the `notice` view with type `alert`.
+	 *
+	 * @return void
+	 */
 	public static function display_alert() {
 		Akismet::view(
 			'notice',
@@ -1059,6 +1310,24 @@ class Akismet_Admin {
 		);
 	}
 
+	/**
+	 * Return structured data describing a usage-limit alert for the current site.
+	 *
+	 * The array contains alert metadata and upgrade information used to render
+	 * usage-limit notices in the admin UI.
+	 *
+	 * @return array{
+	 *     type: string,                 // Alert type, always 'usage-limit'
+	 *     code: int,                    // Numeric alert code
+	 *     msg: string|null,             // Human-readable alert message or null
+	 *     api_calls: int|null,          // Number of API calls recorded or null
+	 *     usage_limit: int|null,        // Configured usage limit or null
+	 *     upgrade_plan: string|null,    // Suggested upgrade plan identifier or null
+	 *     upgrade_url: string|null,     // URL to upgrade or null
+	 *     upgrade_type: string|null,    // Type of upgrade (e.g., 'paid', 'support') or null
+	 *     upgrade_via_support: bool     // True if upgrade must be arranged via support
+	 * }
+	 */
 	public static function get_usage_limit_alert_data() {
 		return array(
 			'type'                => 'usage-limit',
@@ -1073,10 +1342,25 @@ class Akismet_Admin {
 		);
 	}
 
+	/**
+	 * Renders a usage-limit alert notice in the admin interface describing that Akismet usage has reached or exceeded configured limits.
+	 *
+	 * @return void
+	 */
 	public static function display_usage_limit_alert() {
 		Akismet::view( 'notice', self::get_usage_limit_alert_data() );
 	}
 
+	/**
+	 * Displays an admin warning when queued comments require Akismet rechecking or when WP-Cron is disabled.
+	 *
+	 * Ensures recheck scheduling and, if there are comments waiting to be checked, renders either a
+	 * cron-disabled notice or a spam-check guidance notice that links to the Akismet configuration page.
+	 *
+	 * Filters:
+	 * - `akismet_display_cron_disabled_notice` (bool): Controls whether the WP-Cron disabled notice is shown.
+	 * - `akismet_spam_check_warning_link_text` (string): Customizes the link text used in the spam-check guidance notice.
+	 */
 	public static function display_spam_check_warning() {
 		Akismet::fix_scheduled_recheck();
 
@@ -1100,10 +1384,21 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Render a warning prompting the administrator to configure an Akismet API key.
+	 *
+	 * @return void
+	 */
 	public static function display_api_key_warning() {
 		Akismet::view( 'notice', array( 'type' => 'plugin' ) );
 	}
 
+	/**
+	 * Selects and displays the appropriate Akismet admin subpage.
+	 *
+	 * Chooses the Start page when no API key is configured or when the `view` query param equals `start`,
+	 * chooses the Stats page when `view` equals `stats`, and otherwise displays the Configuration page.
+	 */
 	public static function display_page() {
 		if ( ! Akismet::get_api_key() || ( isset( $_GET['view'] ) && $_GET['view'] == 'start' ) ) {
 			self::display_start_page();
@@ -1114,6 +1409,17 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Render the Akismet setup/start page and handle related start-page actions.
+	 *
+	 * Processes start-page actions such as deleting the stored API key when a valid nonce is supplied,
+	 * attempting to auto-connect an API key via token or Jetpack user data, and saving an auto-discovered
+	 * key (which will then display the configuration page). If a valid API key is already present, the
+	 * configuration page is shown instead of the start page. Otherwise, the 'start' view is rendered with
+	 * any discovered Akismet user information.
+	 *
+	 * @return void
+	 */
 	public static function display_start_page() {
 		if ( isset( $_GET['action'] ) ) {
 			if ( $_GET['action'] == 'delete-key' ) {
@@ -1177,10 +1483,20 @@ class Akismet_Admin {
 		*/
 	}
 
+	/**
+	 * Render the Akismet statistics admin screen.
+	 */
 	public static function display_stats_page() {
 		Akismet::view( 'stats' );
 	}
 
+	/**
+	 * Render the Akismet configuration admin page.
+	 *
+	 * Ensures the legacy strictness option exists, synchronizes the local total-spam count with server-provided totals,
+	 * prepares notices based on account and alert state, and renders the configuration view. If the stored API key
+	 * is no longer valid, records an "existing key invalid" notice and displays the start (setup) page instead.
+	 */
 	public static function display_configuration_page() {
 		$api_key      = Akismet::get_api_key();
 		$akismet_user = self::get_akismet_user( $api_key );
@@ -1282,6 +1598,13 @@ class Akismet_Admin {
 		Akismet::view( 'config', compact( 'api_key', 'akismet_user', 'stat_totals', 'notices' ) );
 	}
 
+	/**
+	 * Display Akismet admin notices on appropriate admin screens.
+	 *
+	 * Outputs contextual HTML notices — such as usage-limit alerts, generic alerts, API key setup
+	 * prompts, spam-check warnings, and results of a recheck operation — for admin pages that
+	 * are not the Akismet configuration screen (those pages render notices inline).
+	 */
 	public static function display_notice() {
 		global $hook_suffix;
 
@@ -1336,6 +1659,12 @@ class Akismet_Admin {
 		}
 	}
 
+	/**
+	 * Renders Akismet admin status notices.
+	 *
+	 * If the Akismet servers are unreachable, displays a "servers-be-down" notice.
+	 * Otherwise, renders any queued notices and removes each notice from the queue after rendering.
+	 */
 	public static function display_status() {
 		if ( ! self::get_server_connectivity() ) {
 			Akismet::view( 'notice', array( 'type' => 'servers-be-down' ) );
@@ -1368,19 +1697,19 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * Gets a specific notice by key.
-	 *
-	 * @param $key
-	 * @return mixed
-	 */
+		 * Retrieve a stored admin notice by its key.
+		 *
+		 * @param string $key The notice key to retrieve.
+		 * @return mixed|null The notice value for the given key, or `null` if no notice exists.
+		 */
 	private static function get_notice_by_key( $key ) {
 		return self::$notices[ $key ] ?? null;
 	}
 
 	/**
-	 * Gets a Jetpack user.
+	 * Retrieve the Jetpack-connected user's Akismet API key and WordPress.com user ID when available.
 	 *
-	 * @return array|false
+	 * @return array|false An array with keys `api_key` (string) and `user_id` (int) if found, or `false` if no Jetpack user/API key is available.
 	 */
 	private static function get_jetpack_user() {
 		if ( ! class_exists( 'Jetpack' ) ) {
@@ -1425,12 +1754,15 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * Some commentmeta isn't useful in an export file. Suppress it (when supported).
+	 * Exclude Akismet-specific comment meta keys from data export.
 	 *
-	 * @param bool   $exclude
-	 * @param string $key The meta key
-	 * @param object $meta The meta object
-	 * @return bool Whether to exclude this meta entry from the export.
+	 * Filters exported comment meta and suppresses internal Akismet keys that are not useful
+	 * in an export file (for example: `akismet_as_submitted`, `akismet_rechecking`, etc.).
+	 *
+	 * @param bool   $exclude Whether the meta is already excluded.
+	 * @param string $key     The meta key.
+	 * @param object $meta    The meta object.
+	 * @return bool `true` if the meta key should be excluded from export, `false` otherwise.
 	 */
 	public static function exclude_commentmeta_from_export( $exclude, $key, $meta ) {
 		if (
@@ -1454,7 +1786,14 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * When Akismet is active, remove the "Activate Akismet" step from the plugin description.
+	 * Update Akismet's plugin description to reflect whether an API key is configured.
+	 *
+	 * If Akismet is present in the provided plugins list, replaces its Description text
+	 * with a message suited for configured sites or a prompt linking to the Akismet settings
+	 * page when no API key is set.
+	 *
+	 * @param array $all_plugins Array of all installed plugins keyed by plugin file.
+	 * @return array The plugins array with Akismet's Description possibly updated.
 	 */
 	public static function modify_plugin_description( $all_plugins ) {
 		if ( isset( $all_plugins['akismet/akismet.php'] ) ) {
@@ -1468,12 +1807,29 @@ class Akismet_Admin {
 		return $all_plugins;
 	}
 
+	/**
+	 * Set the saved state for the comment form privacy notice.
+	 *
+	 * Updates the `akismet_comment_form_privacy_notice` option when `$state` is either
+	 * 'display' or 'hide'; other values are ignored.
+	 *
+	 * @param string $state Either 'display' to show the notice or 'hide' to suppress it.
+	 */
 	private static function set_form_privacy_notice_option( $state ) {
 		if ( in_array( $state, array( 'display', 'hide' ) ) ) {
 			update_option( 'akismet_comment_form_privacy_notice', $state );
 		}
 	}
 
+	/**
+	 * Register Akismet's personal data eraser in the provided erasers list.
+	 *
+	 * Adds an 'akismet' eraser entry with a friendly name and a callback to
+	 * Akismet_Admin::erase_personal_data.
+	 *
+	 * @param array $erasers Associative array of registered personal data erasers.
+	 * @return array The modified erasers array including the Akismet eraser.
+	 */
 	public static function register_personal_data_eraser( $erasers ) {
 		$erasers['akismet'] = array(
 			'eraser_friendly_name' => __( 'Akismet', 'akismet' ),
@@ -1484,16 +1840,19 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * When a user requests that their personal data be removed, Akismet has a duty to discard
-	 * any personal data we store outside of the comment itself. Right now, that is limited
-	 * to the copy of the comment we store in the akismet_as_submitted commentmeta.
+	 * Erase any Akismet-stored personal data tied to a user's email address.
 	 *
-	 * FWIW, this information would be automatically deleted after 15 days.
+	 * Removes the 'akismet_as_submitted' comment meta for comments authored with the given
+	 * email address. Processing is done in paginated batches to avoid timeouts.
 	 *
-	 * @param $email_address string The email address of the user who has requested erasure.
-	 * @param $page int This function can (and will) be called multiple times to prevent timeouts,
-	 *                  so this argument is used for pagination.
-	 * @return array
+	 * @param string $email_address The email address of the user requesting erasure.
+	 * @param int    $page          Page number for paginated processing (1-based).
+	 * @return array{
+	 *     items_removed: bool,   // true if one or more items were removed during this call
+	 *     items_retained: bool,  // false when no Akismet data is retained for the matched comments
+	 *     messages: string[],    // array of messages to report progress or issues
+	 *     done: bool             // true if there are no more pages to process
+	 * }
 	 * @see https://developer.wordpress.org/plugins/privacy/adding-the-personal-data-eraser-to-your-plugin/
 	 */
 	public static function erase_personal_data( $email_address, $page = 1 ) {
@@ -1533,19 +1892,19 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * Return an array of HTML elements that are allowed in a notice.
+	 * Get the set of HTML elements and attributes allowed in admin notices.
 	 *
-	 * @return array
+	 * @return array An associative array mapping allowed element names to arrays of allowed attributes. 
 	 */
 	public static function get_notice_kses_allowed_elements() {
 		return self::$allowed;
 	}
 
 	/**
-	 * Return a version to append to the URL of an asset file (e.g. CSS and images).
+	 * Produce a version identifier suitable for appending to an asset URL.
 	 *
-	 * @param string $relative_path Relative path to asset file
-	 * @return string
+	 * @param string $relative_path Relative path (from plugin root) to the asset file.
+	 * @return string|int A version identifier: the file modification timestamp when a development version is detected and the file exists, otherwise the AKISMET_VERSION string.
 	 */
 	public static function get_asset_file_version( $relative_path ) {
 
@@ -1562,9 +1921,12 @@ class Akismet_Admin {
 	}
 
 	/**
-	 * Return inline CSS for Akismet admin.
+	 * Generate inline CSS used by the Akismet admin UI.
 	 *
-	 * @return string
+	 * Includes rules to hide excess compatible-plugin cards and, when on activation-banner
+	 * admin pages, appends a background-image rule for the activation banner element.
+	 *
+	 * @return string The assembled inline CSS.
 	 */
 	protected static function get_inline_css(): string {
 		global $hook_suffix;

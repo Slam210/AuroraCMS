@@ -12,8 +12,10 @@
 class Akismet_Widget extends WP_Widget {
 
 	/**
-	* Constructor
-	*/
+	 * Initialize the Akismet Widget by registering its base ID, name, and description.
+	 *
+	 * Sets the widget's identifying information used by WordPress when registering and displaying the widget.
+	 */
 	function __construct() {
 		parent::__construct(
 			'akismet_widget',
@@ -23,9 +25,9 @@ class Akismet_Widget extends WP_Widget {
 	}
 
 	/**
-	 * Outputs the widget settings form
+	 * Render the widget settings form in the admin, displaying the title input.
 	 *
-	 * @param array $instance The widget options
+	 * @param array $instance Current widget settings; may include a 'title' key.
 	 */
 	public function form( $instance ) {
 		if ( $instance && isset( $instance['title'] ) ) {
@@ -44,11 +46,11 @@ class Akismet_Widget extends WP_Widget {
 	}
 
 	/**
-	 * Updates the widget settings
+	 * Sanitizes and saves the widget settings, ensuring the title is safe for storage.
 	 *
-	 * @param array $new_instance New widget instance
-	 * @param array $old_instance Old widget instance
-	 * @return array Updated widget instance
+	 * @param array $new_instance New widget instance data.
+	 * @param array $old_instance Previous widget instance data.
+	 * @return array The sanitized widget instance with the `title` field set.
 	 */
 	public function update( $new_instance, $old_instance ) {
 		$instance          = array();
@@ -57,10 +59,14 @@ class Akismet_Widget extends WP_Widget {
 	}
 
 	/**
-	 * Outputs the widget content
+	 * Render the widget front-end that displays the number of spam items Akismet has blocked.
 	 *
-	 * @param array $args Widget arguments
-	 * @param array $instance Widget instance
+	 * Retrieves the spam count from the `akismet_spam_count` option and outputs a styled, accessible
+	 * block (linking to https://akismet.com) showing the localized, formatted spam count. Ensures a
+	 * default title of "Spam Blocked" when the instance title is not provided.
+	 *
+	 * @param array $args    Widget display arguments provided by the theme (before_widget, before_title, after_title, after_widget, etc.).
+	 * @param array $instance Current widget instance settings (may contain 'title').
 	 */
 	public function widget( $args, $instance ) {
 		$count = get_option( 'akismet_spam_count' );

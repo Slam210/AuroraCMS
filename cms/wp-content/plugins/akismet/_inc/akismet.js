@@ -151,11 +151,11 @@ jQuery( function ( $ ) {
 	}
 
 	/**
-	 * The way mShots works is if there was no screenshot already recently generated for the URL,
-	 * it returns a "loading..." image for the first request. Then, some subsequent request will
-	 * receive the actual screenshot, but it's unknown how long it will take. So, what we do here
-	 * is continually re-request the mShot, waiting a second after every response until we get the
-	 * actual screenshot.
+	 * Retry loading the mShot image until a non-preview screenshot is obtained or the retry limit is reached.
+	 *
+	 * Re-requests the mShot at intervals defined by `mshotRetryInterval`, increments `mshotTries` for each new request,
+	 * and sets a `pending-request` data flag on the mshot container while awaiting a response. Stops when the image
+	 * width indicates a final screenshot has been delivered or when the retry count reaches the 20-attempt limit.
 	 */
 	function retryMshotUntilLoaded() {
 		clearTimeout( mshotRetryTimer );
@@ -189,6 +189,13 @@ jQuery( function ( $ ) {
 		}
 	}
 	
+	/**
+	 * Preloads mShot images for comment links that are fully visible in the viewport.
+	 *
+	 * Iterates over comment list links matching the mshot selector and, for each link fully inside the current viewport,
+	 * initiates an image preload and marks the element with a `akismet-mshot-preloaded` data flag. Links already recorded
+	 * as preloaded are skipped. If the browser does not support `getBoundingClientRect`, the function stops further processing.
+	 */
 	function preloadMshotsInViewport() {
 		var windowWidth = $( window ).width();
 		var windowHeight = $( window ).height();
@@ -238,6 +245,16 @@ jQuery( function ( $ ) {
 	var spam_count = 0;
 	var recheck_count = 0;
 
+	/**
+	 * Processes a batch of queued comments to recheck for spam and advances the overall recheck progress.
+	 *
+	 * Sends an AJAX request for the specified batch (offset, limit), updates the global progress counters
+	 * (recheck_count and spam_count) based on the server response, and either redirects to a success/failure
+	 * URL provided on the initiating button or continues with the next batch until complete.
+	 *
+	 * @param {number} offset - Zero-based index of the first comment to process in this batch.
+	 * @param {number} limit - Maximum number of comments to process in this batch.
+	 */
 	function akismet_check_for_spam(offset, limit) {
 		var check_for_spam_buttons = $( '.checkforspam' );
 		
@@ -303,6 +320,14 @@ jQuery( function ( $ ) {
 		}
 	}
 
+	/**
+	 * Inserts an inline "remove URL" control next to comment author links in the comment list.
+	 *
+	 * Scans comment rows for the first HTTP author link (ignoring mailto:), skips links on the current site
+	 * and any comment that already has a removal control, then assigns the author link an id of the form
+	 * `author_comment_url_<commentId>` and appends an adjacent anchor with class `akismet_remove_url`
+	 * containing a `commentid` attribute and a localized `title`.
+	 */
 	function akismet_enable_comment_author_url_removal() {
 		$( '#the-comment-list' )
 			.find( 'tr.comment, tr[id ^= "comment-"]' )
@@ -334,11 +359,11 @@ jQuery( function ( $ ) {
 	}
 	
 	/**
-	 * Generate an mShot URL if given a link URL.
+	 * Construct the mShot service URL for a given target link.
 	 *
-	 * @param string linkUrl
-	 * @param int retry If retrying a request, the number of the retry.
-	 * @return string The mShot URL;
+	 * @param {string} linkUrl - The target URL to capture.
+	 * @param {number} retry - Retry attempt number; values greater than 1 add an `r` query parameter.
+	 * @returns {string} The constructed mShot image URL.
 	 */
 	function akismet_mshot_url( linkUrl, retry ) {
 		var mshotUrl = '//s0.wp.com/mshots/v1/' + encodeURIComponent( linkUrl ) + '?w=900';
@@ -353,9 +378,9 @@ jQuery( function ( $ ) {
 	}
 	
 	/**
-	 * Begin loading an mShot preview of a link.
+	 * Starts loading an mShot preview for the given link and records the link as preloaded.
 	 *
-	 * @param string linkUrl
+	 * @param {string} linkUrl - The original link URL for which to preload the mShot preview.
 	 */
 	function akismet_preload_mshot( linkUrl ) {
 		var img = new Image();
